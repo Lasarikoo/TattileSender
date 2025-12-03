@@ -1,0 +1,17 @@
+﻿{
+  "LogLevel": 1,
+  "PortReceiveTransit": 32100,
+  "CertPath": "C:\\Users\\suits\\Suits_Mossos\\cma_aj_lagranada_pro_dgp.interior.gencat.cat.20210910.pfx",
+  "Password": "ajAckGFaS",
+  "Endpoint": "https://anpr.dgp.interior.extranet.gencat.cat/matr-ws/matriculesService",
+  "Camaras": [
+    {
+      "SerialNumber": "2001008845",
+      "CodigoLector": "000000012RT50181"
+    },
+    {
+      "SerialNumber": "2001008851",
+      "CodigoLector": "000000015RP39319"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+﻿{
+  "LogLevel": 0,
+  "PortReceiveTransit": 32000,
+  "CertPath": "C:\\Users\\suits\\Suits_Mossos\\CMA_EM_SUSTAINABLEITS_PRE_DGP.interior.gencat.cat.pfx",
+  "Password": "SUSTAINABLEITS",
+  "Camaras": [
+    {
+      "SerialNumber": "1910012477",
+      "CodigoLector": "000000030AQ65954"
+    },
+    {
+      "SerialNumber": "1901009822",
+      "CodigoLector": "000000030AQ65954"
+    }
+  ]
+}
