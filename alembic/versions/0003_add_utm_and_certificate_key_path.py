@@ -5,7 +5,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0003_add_utm_and_certificate_key_path"
+revision = "0003_utm_cert_key"
 down_revision = "0002_sender_phase2"
 branch_labels = None
 depends_on = None
