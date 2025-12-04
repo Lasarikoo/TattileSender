@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-tattile_sender}
+      POSTGRES_USER: ${DB_USER:-tattile}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  api:
+    # Imagen base para la API; en fases futuras se añadirá un Dockerfile y el
+    # comando para ejecutar uvicorn apuntando a app.api.main:app
+    image: python:3.11-slim
+    depends_on:
+      - db
+    volumes:
+      - ./:/workspace
+    working_dir: /workspace
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-tattile_sender}
+      DB_USER: ${DB_USER:-tattile}
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      CERTS_DIR: /certs
+      TRANSIT_PORT: ${TRANSIT_PORT:-33334}
+      APP_ENV: ${APP_ENV:-dev}
+    # command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+
+volumes:
+  db_data:
