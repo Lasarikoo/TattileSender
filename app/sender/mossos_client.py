@@ -96,11 +96,21 @@ class MossosClient:
         ET.SubElement(request, ET.QName(MATRICULA_NS, "imgMatricula")).text = img_ocr_b64
         ET.SubElement(request, ET.QName(MATRICULA_NS, "imgContext")).text = img_ctx_b64
 
-        if camera.utm_x is not None and camera.utm_y is not None:
-            coord_x_str = f"{camera.utm_x:.2f}"
-            coord_y_str = f"{camera.utm_y:.2f}"
-            ET.SubElement(request, ET.QName(MATRICULA_NS, "coordenadaX")).text = coord_x_str
-            ET.SubElement(request, ET.QName(MATRICULA_NS, "coordenadaY")).text = coord_y_str
+        coord_x_value = camera.coord_x or (
+            f"{camera.utm_x:.2f}" if camera.utm_x is not None else None
+        )
+        coord_y_value = camera.coord_y or (
+            f"{camera.utm_y:.2f}" if camera.utm_y is not None else None
+        )
+
+        if coord_x_value and coord_y_value:
+            ET.SubElement(request, ET.QName(MATRICULA_NS, "coordenadaX")).text = coord_x_value
+            ET.SubElement(request, ET.QName(MATRICULA_NS, "coordenadaY")).text = coord_y_value
+        else:
+            logger.warning(
+                "[SENDER][MOSSOS][WARN] Cámara %s sin coordenadas X/Y definidas",
+                camera.serial_number,
+            )
 
         return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
 

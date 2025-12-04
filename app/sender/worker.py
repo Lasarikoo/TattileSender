@@ -132,7 +132,8 @@ def process_message(session: Session, message: MessageQueue) -> None:
     _mark_sending(session, message)
 
     timeout_seconds = max((endpoint.timeout_ms or 5000) / 1000.0, 1.0)
-    cert_path = _full_cert_path(certificate.path or "")
+    cert_candidate = certificate.public_cert_path or certificate.path or ""
+    cert_path = _full_cert_path(cert_candidate)
     key_path = _full_cert_path(certificate.key_path) if certificate.key_path else None
 
     if not os.path.exists(cert_path):

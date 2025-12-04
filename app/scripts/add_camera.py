@@ -57,16 +57,38 @@ def main() -> None:
     print("=== Añadir cámara ===")
     serial_number = input("Serial number (DEVICE_SN): ").strip()
     codigo_lector = input("Código lector: ").strip()
-    utm_x_str = input("Coordenada UTM X (Este, UTM31N ETRS89, 2 decimales): ").strip()
-    utm_y_str = input("Coordenada UTM Y (Norte, UTM31N ETRS89, 2 decimales): ").strip()
+    utm_x_str = input(
+        "Coordenada X (UTM31N - ETRS89, exactamente con dos decimales): "
+    ).strip()
+    utm_y_str = input(
+        "Coordenada Y (UTM31N - ETRS89, exactamente con dos decimales): "
+    ).strip()
 
-    try:
-        utm_x = float(utm_x_str.replace(",", "."))
-        utm_y = float(utm_y_str.replace(",", "."))
-    except ValueError:
-        print(
-            "[ADD CAMERA][ERROR] Coordenadas inválidas. Deben ser números (pueden llevar coma o punto)."
-        )
+    def _validate_coord(raw: str, label: str) -> tuple[str, float] | None:
+        if not raw:
+            print(f"[ADD CAMERA][ERROR] {label} es obligatorio.")
+            return None
+        normalized = raw.replace(",", ".")
+        parts = normalized.split(".")
+        if len(parts) != 2 or len(parts[1]) != 2 or not all(part.isdigit() for part in parts):
+            print(
+                f"[ADD CAMERA][ERROR] {label} debe ser numérico y contener exactamente dos decimales."
+            )
+            return None
+        try:
+            as_float = float(normalized)
+        except ValueError:
+            print(f"[ADD CAMERA][ERROR] {label} debe ser numérico y con formato decimal.")
+            return None
+        integer_part = parts[0].lstrip("-")
+        if len(integer_part) > 8:
+            print(f"[ADD CAMERA][ERROR] {label} supera las 8 cifras enteras permitidas.")
+            return None
+        return f"{as_float:.2f}", as_float
+
+    validated_x = _validate_coord(utm_x_str, "Coordenada X")
+    validated_y = _validate_coord(utm_y_str, "Coordenada Y")
+    if not validated_x or not validated_y:
         return
 
     session = SessionLocal()
@@ -77,11 +99,16 @@ def main() -> None:
 
         endpoint = select_endpoint(session)
 
+        coord_x, utm_x = validated_x
+        coord_y, utm_y = validated_y
+
         camera = Camera(
             serial_number=serial_number,
             codigo_lector=codigo_lector,
             municipality_id=municipality.id,
             endpoint_id=endpoint.id if endpoint else None,
+            coord_x=coord_x,
+            coord_y=coord_y,
             utm_x=utm_x,
             utm_y=utm_y,
             active=True,

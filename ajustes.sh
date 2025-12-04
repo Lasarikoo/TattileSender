@@ -85,11 +85,50 @@ show_assign_menu() {
     done
 }
 
+show_update_menu() {
+    while true; do
+        clear
+        echo "Modificar datos"
+        echo "1) Modificar municipios"
+        echo "2) Modificar cámaras"
+        echo "3) Modificar endpoints"
+        echo "4) Modificar certificados"
+        echo "5) Volver"
+        read -rp "Seleccione una opción: " option
+        case $option in
+            1)
+                python -m app.scripts.update_municipality
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            2)
+                python -m app.scripts.update_camera
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            3)
+                python -m app.scripts.update_endpoint
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            4)
+                python -m app.scripts.update_certificate
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            5)
+                break
+                ;;
+            *)
+                echo "Opción no válida"
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+        esac
+    done
+}
+
 while true; do
     clear
     echo "TattileSender - Ajustes"
     echo "1) Añadir datos"
     echo "2) Asignar relaciones"
+    echo "7) Modificar datos"
     echo "3) Salir"
     read -rp "Seleccione una opción: " main_option
     case $main_option in
@@ -98,6 +137,9 @@ while true; do
             ;;
         2)
             show_assign_menu
+            ;;
+        7)
+            show_update_menu
             ;;
         3)
             exit 0
