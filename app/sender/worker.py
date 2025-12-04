@@ -18,8 +18,9 @@ from app.models import (
     Municipality,
     SessionLocal,
 )
+from app.sender.cleanup import delete_reading_images
 from app.sender.mossos_client import MossosClient
-from app.utils.images import delete_reading_images, resolve_image_path
+from app.utils.images import resolve_image_path
 
 logger = logging.getLogger("sender")
 logger.setLevel(logging.DEBUG)
@@ -80,17 +81,18 @@ def _mark_dead(session: Session, message: MessageQueue, error: str) -> None:
 
 def _validate_images(reading: AlprReading) -> tuple[bool, str | None]:
     if not reading.has_image_ocr or not reading.image_ocr_path:
-        return False, "NO_IMAGE_AVAILABLE: imgMatricula"
-    if not reading.has_image_ctx or not reading.image_ctx_path:
-        return False, "NO_IMAGE_AVAILABLE: imgContext"
+        return False, "NO_IMAGE_AVAILABLE_OCR"
 
     ocr_full = resolve_image_path(reading.image_ocr_path)
-    ctx_full = resolve_image_path(reading.image_ctx_path)
-
     if not ocr_full or not os.path.isfile(ocr_full):
-        return False, "NO_IMAGE_FILE: imgMatricula"
-    if not ctx_full or not os.path.isfile(ctx_full):
-        return False, "NO_IMAGE_FILE: imgContext"
+        return False, f"NO_IMAGE_FILE_OCR:{ocr_full}"
+
+    if reading.has_image_ctx:
+        ctx_full = resolve_image_path(reading.image_ctx_path)
+        if not ctx_full:
+            return False, "NO_IMAGE_AVAILABLE_CTX"
+        if not os.path.isfile(ctx_full):
+            return False, f"NO_IMAGE_FILE_CTX:{ctx_full}"
 
     return True, None
 
@@ -232,11 +234,18 @@ def process_message(session: Session, message: MessageQueue) -> None:
         timeout=timeout_seconds,
     )
 
-    result = client.send_matricula(
-        reading=reading,
-        camera=camera,
-        municipality=municipality,
-    )
+    try:
+        result = client.send_matricula(
+            reading=reading,
+            camera=camera,
+            municipality=municipality,
+        )
+    except FileNotFoundError as exc:
+        _mark_dead(session, message, f"NO_IMAGE_FILE_RUNTIME: {exc}")
+        logger.warning(
+            "[SENDER] Mensaje %s DEAD por FileNotFoundError en runtime", message.id
+        )
+        return
 
     error_msg = result.error_message or ""
     if error_msg.startswith("NO_IMAGE"):

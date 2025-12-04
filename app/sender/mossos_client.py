@@ -94,16 +94,18 @@ class MossosClient:
 
         data_str, hora_str = self._format_date_time(reading.timestamp_utc)
 
-        img_ocr_b64 = None
-        img_ctx_b64 = None
+        img_ctx_b64 = ""
         try:
             img_ocr_b64 = self._load_image_b64(reading.image_ocr_path, "imgMatricula")
-            img_ctx_b64 = self._load_image_b64(reading.image_ctx_path, "imgContext")
+            if reading.image_ctx_path:
+                img_ctx_b64 = self._load_image_b64(
+                    reading.image_ctx_path, "imgContext"
+                )
         except FileNotFoundError as exc:
             logger.error("[SENDER][MOSSOS][ERROR] %s", exc)
             raise
 
-        if not img_ocr_b64 or not img_ctx_b64:
+        if not img_ocr_b64:
             raise ValueError("Missing images for matriculaRequest")
 
         ET.register_namespace("soapenv", SOAP_ENV_NS)
