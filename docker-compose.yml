@@ -1,5 +1,10 @@
 version: "3.9"
 
+# Usa este archivo para levantar rápidamente PostgreSQL en local. La API y el
+# Ingest Service se ejecutan desde el host (entorno virtual de Python) por el
+# momento. Puedes dejar corriendo solo la base de datos con:
+#   docker compose up -d db
+
 services:
   db:
     image: postgres:15
@@ -9,31 +14,32 @@ services:
       POSTGRES_USER: ${DB_USER:-tattile}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
     ports:
-      - "5432:5432"
+      - "5432:5432"  # Expón este puerto solo si necesitas acceder desde el host
     volumes:
       - db_data:/var/lib/postgresql/data
 
-  api:
-    # Imagen base para la API; en fases futuras se añadirá un Dockerfile y el
-    # comando para ejecutar uvicorn apuntando a app.api.main:app
-    image: python:3.11-slim
-    depends_on:
-      - db
-    volumes:
-      - ./:/workspace
-    working_dir: /workspace
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-tattile_sender}
-      DB_USER: ${DB_USER:-tattile}
-      DB_PASSWORD: ${DB_PASSWORD:-changeme}
-      CERTS_DIR: /certs
-      TRANSIT_PORT: ${TRANSIT_PORT:-33334}
-      APP_ENV: ${APP_ENV:-dev}
-    # command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
-    ports:
-      - "8000:8000"
+  # api:
+  #   # Ejemplo de servicio futuro para la API. Por ahora se recomienda
+  #   # ejecutarla desde el host con el entorno virtual de Python:
+  #   #   uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+  #   image: python:3.11-slim
+  #   depends_on:
+  #     - db
+  #   volumes:
+  #     - ./:/workspace
+  #   working_dir: /workspace
+  #   environment:
+  #     DB_HOST: db
+  #     DB_PORT: 5432
+  #     DB_NAME: ${DB_NAME:-tattile_sender}
+  #     DB_USER: ${DB_USER:-tattile}
+  #     DB_PASSWORD: ${DB_PASSWORD:-changeme}
+  #     CERTS_DIR: /certs
+  #     TRANSIT_PORT: ${TRANSIT_PORT:-33334}
+  #     APP_ENV: ${APP_ENV:-dev}
+  #   # command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+  #   ports:
+  #     - "8000:8000"
 
 volumes:
   db_data:

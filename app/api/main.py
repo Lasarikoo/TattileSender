@@ -1,6 +1,8 @@
 """Aplicación FastAPI mínima para TattileSender.
 
-Expone un endpoint `/health` básico con métricas mínimas de la base de datos.
+Arráncala en desarrollo con `uvicorn app.api.main:app --reload` (o ajusta host
+y puerto según sea necesario). Expone un endpoint `/health` básico con métricas
+mínimas de la base de datos.
 """
 from fastapi import FastAPI
 from sqlalchemy import func
