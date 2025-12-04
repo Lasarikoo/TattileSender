@@ -22,3 +22,12 @@ como:
 - Gestión limitada de múltiples certificados según cámara o municipio.
 - Escasa trazabilidad y herramientas de observabilidad.
 - Manejo de errores y reintentos poco configurable.
+
+## Evolución en TattileSender
+- El exe legacy mapea `SerialNumber` → `CodigoLector` mediante un único
+  `Configuration.json`, con el certificado acoplado al binario y sin un modelo
+  de municipios con múltiples certificados almacenado en base de datos.
+- TattileSender introduce tablas `municipalities`, `certificates` y `cameras`
+  para soportar de forma explícita la relación cámara → municipio → certificado
+  (y endpoint), permitiendo gestionar varios municipios y certificados de forma
+  escalable y mantenible.

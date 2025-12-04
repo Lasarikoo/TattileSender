@@ -3,6 +3,14 @@
 En la Fase 0 no se declaran modelos concretos. Aquí se ubicarán las clases
 SQLAlchemy que representarán tablas como `alpr_readings`, `messages_queue`,
 `cameras`, `certificates` y `endpoints`.
+
+Modelos previstos (no implementados en Fase 0):
+- Municipality
+- Certificate
+- Endpoint
+- Camera
+- AlprReading
+- MessageQueue
 """
 
 # Los modelos se añadirán en fases posteriores cuando se diseñe el esquema SQL

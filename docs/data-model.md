@@ -22,7 +22,8 @@
   },
   "has_image_ocr": true,
   "has_image_ctx": true,
-  "raw_xml": "<ALPR>...</ALPR>"
+  "raw_xml": "<ALPR>...</ALPR>",
+  "camera_id": "uuid"
 }
 ```
 
@@ -33,6 +34,11 @@
 - `has_image_ocr` y `has_image_ctx` indican la presencia de `IMAGE_OCR` y
   `IMAGE_CTX` en base64; las imágenes podrán almacenarse o descartarse según la
   política definida.
+- `camera_id` enlaza con la cámara que generó la lectura y permite resolver el
+  municipio y certificado adecuados en el envío.
+- Ciclo de vida: se crea al recibir el XML de Tattile, permanece mientras exista
+  un mensaje pendiente en la cola y se elimina cuando el envío a Mossos se
+  completa con éxito, junto con las imágenes asociadas.
 
 ## QueueMessage (estructura lógica)
 ```json
@@ -53,3 +59,15 @@
 - `last_error` almacena el mensaje de error más reciente (texto controlado).
 - `sent_at` se rellena cuando el envío se confirma como exitoso.
 - `created_at` marca el momento de encolado.
+- Al cambiar a `SENT` con confirmación, el mensaje debe eliminarse junto con la
+  lectura enlazada y cualquier imagen guardada.
+
+## Resolución de envío (cadena cámara → municipio → certificado)
+- El Sender Worker parte de un `QueueMessage` y recupera el `ALPRReading`
+  asociado mediante `reading_id`.
+- Con `camera_id`, obtiene la cámara y su municipio. El municipio aporta el
+  certificado y, por defecto, el endpoint; la cámara puede sobreescribir el
+  endpoint si tiene uno específico.
+- Con el certificado y endpoint resueltos, construye y envía la petición a
+  Mossos. Tras éxito, elimina el mensaje, la lectura y las imágenes, dejando
+  solo registros de auditoría sin matrícula si se habilitan.
