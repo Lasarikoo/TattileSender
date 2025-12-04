@@ -6,7 +6,7 @@ import sqlalchemy as sa
 
 
 revision = "0004_add_coord_and_certificate_paths"
-down_revision = "0003_add_utm_and_certificate_key_path"
+down_revision = "0003_utm_cert_key"
 branch_labels = None
 depends_on = None
 
