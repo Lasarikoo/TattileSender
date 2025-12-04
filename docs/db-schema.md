@@ -76,7 +76,9 @@
   envío correcto a Mossos se debe eliminar la fila correspondiente y la lectura
   asociada en `alpr_readings`, además de purgar imágenes vinculadas.
   Los mensajes cuya lectura no tenga imágenes válidas se marcan como `DEAD` sin
-  reintentos.
+  reintentos. Errores típicos de imagen: `NO_IMAGE_AVAILABLE_OCR`,
+  `NO_IMAGE_FILE_OCR:<ruta>`, `NO_IMAGE_FILE_CTX:<ruta>`, o
+  `NO_IMAGE_FILE_RUNTIME:<detalle>`.
 
 ## Relaciones y notas
 - `municipalities.certificate_id` → `certificates.id` (un municipio define el

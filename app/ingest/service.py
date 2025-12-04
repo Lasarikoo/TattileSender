@@ -8,9 +8,10 @@ from typing import Callable
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
+from app.config import settings
+from app.ingest.image_storage import save_reading_image_base64
 from app.ingest.parser import TattileParseError, parse_tattile_xml
 from app.models import AlprReading, Camera, MessageQueue, SessionLocal
-from app.utils.images import save_reading_image
 
 logger = logging.getLogger(__name__)
 
@@ -37,23 +38,27 @@ def process_tattile_payload(xml_str: str, session: Session) -> None:
 
         image_ocr_path = None
         image_ctx_path = None
+        has_image_ocr = False
+        has_image_ctx = False
 
         if parsed.get("image_ocr_b64"):
-            image_ocr_path = save_reading_image(
+            image_ocr_path = save_reading_image_base64(
                 plate=parsed.get("plate") or "",
                 device_sn=device_sn,
                 timestamp_utc=timestamp,
                 kind="ocr",
                 base64_data=parsed.get("image_ocr_b64") or "",
             )
+            has_image_ocr = image_ocr_path is not None
         if parsed.get("image_ctx_b64"):
-            image_ctx_path = save_reading_image(
+            image_ctx_path = save_reading_image_base64(
                 plate=parsed.get("plate") or "",
                 device_sn=device_sn,
                 timestamp_utc=timestamp,
                 kind="ctx",
                 base64_data=parsed.get("image_ctx_b64") or "",
             )
+            has_image_ctx = image_ctx_path is not None
 
         reading = AlprReading(
             camera_id=camera.id,
@@ -71,8 +76,8 @@ def process_tattile_payload(xml_str: str, session: Session) -> None:
             bbox_max_x=parsed.get("bbox_max_x"),
             bbox_max_y=parsed.get("bbox_max_y"),
             char_height=parsed.get("char_height"),
-            has_image_ocr=bool(image_ocr_path),
-            has_image_ctx=bool(image_ctx_path),
+            has_image_ocr=has_image_ocr,
+            has_image_ctx=has_image_ctx,
             image_ocr_path=image_ocr_path,
             image_ctx_path=image_ctx_path,
             raw_xml=xml_str,
@@ -126,8 +131,8 @@ def _serve_connection(conn: socket.socket, addr: tuple, session_factory: Callabl
 def run_ingest_service() -> None:
     """Punto de entrada del servicio de ingesta síncrono."""
 
-    listen_port = settings.transit_port
-    logger.info("Iniciando Ingest Service en puerto %s", listen_port)
+    listen_port = getattr(settings, "TRANSIT_PORT", None) or settings.transit_port
+    logger.info(f"[INGEST] Escuchando en 0.0.0.0:{listen_port}")
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
