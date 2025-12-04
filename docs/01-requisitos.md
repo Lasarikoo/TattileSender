@@ -38,3 +38,8 @@
 - Opcionalmente se podrá conservar un registro de auditoría sin datos
   personales (sin matrícula ni imagen), con información agregada como cámara,
   municipio, fecha y resultado.
+
+En la **Fase 1** ya se recibe XML real, se normaliza y se persiste en
+`alpr_readings`, generando una entrada `PENDING` en `messages_queue`. La
+política de retención completa (borrado tras envío) se aplicará en la Fase 2
+cuando se implemente el flujo de envío hacia Mossos.

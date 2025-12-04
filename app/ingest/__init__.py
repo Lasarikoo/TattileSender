@@ -1,5 +1,5 @@
 """Paquete para el servicio de ingesta de lecturas Tattile."""
 
-from .service_stub import run_ingest_service
+from .service import process_tattile_payload, run_ingest_service
 
-__all__ = ["run_ingest_service"]
+__all__ = ["run_ingest_service", "process_tattile_payload"]

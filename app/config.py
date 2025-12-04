@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     transit_port: int = Field(33334, env="TRANSIT_PORT")
     app_env: str = Field("dev", env="APP_ENV")
 
+    @property
+    def database_url(self) -> str:
+        """Construye la URL de conexión a PostgreSQL para SQLAlchemy."""
+
+        return (
+            f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

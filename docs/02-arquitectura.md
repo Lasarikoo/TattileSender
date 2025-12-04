@@ -38,3 +38,11 @@
   cifrado en reposo cuando aplique. La política de retención y eliminación
   temporal de datos se detalla en `docs/01-requisitos.md` y guía las purgas
   tras envíos exitosos.
+
+## Estado de implementación en Fase 1
+- El Ingest Service ya está implementado y escucha XML Tattile por TCP,
+  normaliza la carga y la persiste.
+- Las lecturas se almacenan en `alpr_readings` y se crean entradas en
+  `messages_queue` con estado `PENDING`.
+- El envío a Mossos y el Sender Worker real se abordarán en la Fase 2,
+  incluyendo la eliminación de datos una vez completado el envío.

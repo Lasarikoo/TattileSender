@@ -1,6 +1,6 @@
 # Modelo de datos lógico
 
-## ALPRReading (JSON lógico)
+## ALPRReading (estructura real)
 ```json
 {
   "plate": "7459MTL",
@@ -37,10 +37,28 @@
 - `camera_id` enlaza con la cámara que generó la lectura y permite resolver el
   municipio y certificado adecuados en el envío.
 - Ciclo de vida: se crea al recibir el XML de Tattile, permanece mientras exista
-  un mensaje pendiente en la cola y se elimina cuando el envío a Mossos se
-  completa con éxito, junto con las imágenes asociadas.
+  un mensaje pendiente en la cola y se eliminará cuando el envío a Mossos se
+  complete con éxito (implementación prevista en Fase 2), junto con las
+  imágenes asociadas.
+  En Fase 1 la tabla ya existe en la base de datos.
 
-## QueueMessage (estructura lógica)
+Ejemplo de fila en `alpr_readings`
+
+```json
+{
+  "id": 1,
+  "camera_id": 10,
+  "device_sn": "TAT1234567",
+  "plate": "7459MTL",
+  "timestamp_utc": "2024-03-21T15:42:10Z",
+  "ocr_score": 92,
+  "has_image_ocr": true,
+  "has_image_ctx": false,
+  "created_at": "2024-03-21T15:42:11Z"
+}
+```
+
+## QueueMessage (estructura real)
 ```json
 {
   "reading_id": "uuid",
@@ -59,8 +77,22 @@
 - `last_error` almacena el mensaje de error más reciente (texto controlado).
 - `sent_at` se rellena cuando el envío se confirma como exitoso.
 - `created_at` marca el momento de encolado.
-- Al cambiar a `SENT` con confirmación, el mensaje debe eliminarse junto con la
-  lectura enlazada y cualquier imagen guardada.
+- Al cambiar a `SENT` con confirmación (Fase 2), el mensaje debe eliminarse
+  junto con la lectura enlazada y cualquier imagen guardada.
+- En Fase 1 la tabla `messages_queue` se utiliza con el estado `PENDING` para
+  todas las lecturas entrantes.
+
+Ejemplo de fila en `messages_queue`
+
+```json
+{
+  "id": 1,
+  "reading_id": 1,
+  "status": "PENDING",
+  "attempts": 0,
+  "created_at": "2024-03-21T15:42:11Z"
+}
+```
 
 ## Resolución de envío (cadena cámara → municipio → certificado)
 - El Sender Worker parte de un `QueueMessage` y recupera el `ALPRReading`
