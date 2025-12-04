@@ -19,6 +19,7 @@ from app.models import (
     SessionLocal,
 )
 from app.sender.mossos_client import MossosClient
+from app.utils.images import delete_reading_images, resolve_image_path
 
 logger = logging.getLogger("sender")
 logger.setLevel(logging.DEBUG)
@@ -37,15 +38,6 @@ def _full_cert_path(cert_path: str) -> str:
     if os.path.isabs(cert_path):
         return cert_path
     return os.path.join(settings.certs_dir, cert_path)
-
-
-def _cleanup_files(*paths: str) -> None:
-    for path in paths:
-        if path and os.path.exists(path):
-            try:
-                os.remove(path)
-            except OSError:
-                logger.warning("[SENDER] No se pudo borrar el fichero %s", path)
 
 
 def _load_candidates(session: Session, batch_size: int) -> Iterable[MessageQueue]:
@@ -86,6 +78,23 @@ def _mark_dead(session: Session, message: MessageQueue, error: str) -> None:
     )
 
 
+def _validate_images(reading: AlprReading) -> tuple[bool, str | None]:
+    if not reading.has_image_ocr or not reading.image_ocr_path:
+        return False, "NO_IMAGE_AVAILABLE: imgMatricula"
+    if not reading.has_image_ctx or not reading.image_ctx_path:
+        return False, "NO_IMAGE_AVAILABLE: imgContext"
+
+    ocr_full = resolve_image_path(reading.image_ocr_path)
+    ctx_full = resolve_image_path(reading.image_ctx_path)
+
+    if not ocr_full or not os.path.isfile(ocr_full):
+        return False, "NO_IMAGE_FILE: imgMatricula"
+    if not ctx_full or not os.path.isfile(ctx_full):
+        return False, "NO_IMAGE_FILE: imgContext"
+
+    return True, None
+
+
 def _mark_sending(session: Session, message: MessageQueue) -> None:
     message.status = MessageStatus.SENDING
     message.updated_at = datetime.now(timezone.utc)
@@ -96,11 +105,8 @@ def _mark_sending(session: Session, message: MessageQueue) -> None:
 
 def _delete_success_records(session: Session, message: MessageQueue) -> None:
     reading = message.reading
-    _cleanup_files(
-        reading.image_ctx_path if reading else None,
-        reading.image_ocr_path if reading else None,
-    )
     if reading:
+        delete_reading_images(reading)
         session.delete(reading)
     session.delete(message)
     session.commit()
@@ -191,6 +197,11 @@ def process_message(session: Session, message: MessageQueue) -> None:
         )
         return
 
+    ok_images, image_error = _validate_images(reading)
+    if not ok_images:
+        _mark_dead(session, message, image_error or "NO_IMAGE_AVAILABLE")
+        return
+
     _mark_sending(session, message)
 
     timeout_seconds = max((endpoint.timeout_ms or 5000) / 1000.0, 1.0)
@@ -226,6 +237,14 @@ def process_message(session: Session, message: MessageQueue) -> None:
         camera=camera,
         municipality=municipality,
     )
+
+    error_msg = result.error_message or ""
+    if error_msg.startswith("NO_IMAGE"):
+        _mark_dead(session, message, result.error_message)
+        return
+    if "fichero de imagen" in error_msg or "imagen no disponible" in error_msg:
+        _mark_dead(session, message, f"NO_IMAGE_FILE: {error_msg}")
+        return
 
     duration_ms = int((time.monotonic() - send_started) * 1000)
     logger.info(

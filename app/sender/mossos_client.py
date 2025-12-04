@@ -20,6 +20,7 @@ import requests
 from lxml import etree as lxml_etree
 
 from app.models import AlprReading, Camera, Municipality
+from app.utils.images import resolve_image_path
 
 logger = logging.getLogger("sender")
 logger.setLevel(logging.DEBUG)
@@ -79,11 +80,12 @@ class MossosClient:
         return ts.strftime("%Y-%m-%d"), ts.strftime("%H:%M:%S")
 
     def _load_image_b64(self, path: Optional[str], label: str) -> str:
-        if not path:
+        full_path = resolve_image_path(path)
+        if not full_path:
             raise FileNotFoundError(f"Ruta de imagen no disponible para {label}")
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"No se encontró el fichero de imagen {label}: {path}")
-        with open(path, "rb") as f:
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"No se encontró el fichero de imagen {label}: {full_path}")
+        with open(full_path, "rb") as f:
             return base64.b64encode(f.read()).decode("ascii")
 
     def _build_xml(self, *, reading: AlprReading, camera: Camera) -> bytes:

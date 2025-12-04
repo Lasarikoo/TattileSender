@@ -54,7 +54,8 @@
 - `direction` (texto), `lane_id` (texto), `lane_descr` (texto opcional).
 - `ocr_score` (numérico), `country_code` (texto), `country` (texto).
 - `bbox_min_x`, `bbox_min_y`, `bbox_max_x`, `bbox_max_y`, `char_height` (numéricos).
-- `has_image_ocr` (booleano), `has_image_ctx` (booleano).
+- `has_image_ocr` (booleano), `has_image_ctx` (booleano): indicadores de si la lectura llegó con imágenes válidas.
+- `image_ocr_path` / `image_ctx_path` (texto, opcional): rutas (relativas a `IMAGES_DIR` o absolutas) donde se almacenaron las imágenes en disco.
 - `raw_xml` (texto largo o XML).
 - `camera_id` (uuid, fk): referencia a `cameras` para conocer municipio y
   certificados asociados.
@@ -66,7 +67,7 @@
 ## Tabla `messages_queue`
 - `id` (uuid): identificador único.
 - `reading_id` (uuid, fk): referencia a `alpr_readings`.
-- `status` (texto controlado): `PENDING`, `SENT`, `FAILED`, `RETRYING`.
+- `status` (texto controlado): `PENDING`, `SENDING`, `FAILED`, `DEAD`, `SUCCESS`.
 - `attempts` (entero): número de intentos de envío.
 - `last_error` (texto opcional): mensaje de error del último intento.
 - `sent_at` (timestamp opcional): última fecha de envío exitoso.
@@ -74,6 +75,8 @@
 - Tabla de trabajo temporal: gestiona el estado de envío. Al confirmarse un
   envío correcto a Mossos se debe eliminar la fila correspondiente y la lectura
   asociada en `alpr_readings`, además de purgar imágenes vinculadas.
+  Los mensajes cuya lectura no tenga imágenes válidas se marcan como `DEAD` sin
+  reintentos.
 
 ## Relaciones y notas
 - `municipalities.certificate_id` → `certificates.id` (un municipio define el

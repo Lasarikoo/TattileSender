@@ -40,7 +40,7 @@ Copia la plantilla y ajusta valores reales:
 ```bash
 cp .env.example .env
 ```
-Edita `.env` con las credenciales creadas en el paso anterior y rutas seguras para los certificados.
+Edita `.env` con las credenciales creadas en el paso anterior, rutas seguras para los certificados y define `IMAGES_DIR` en una ubicación con espacio suficiente para binarios temporales (por defecto `data/images`).
 
 ### 6. Ejecutar migraciones Alembic usando SIEMPRE el venv
 Activa el entorno virtual y lanza las migraciones:
@@ -145,3 +145,13 @@ Cuando uses Docker, `DB_HOST` puede ser `db` si ejecutas procesos en contenedore
 - No almacenes certificados `.pfx` ni contraseñas reales en el repositorio.
 - En producción se recomienda gestionar variables de entorno mediante el sistema o un servicio de secretos.
 - Para automatizar la puesta en marcha se pueden crear unidades `systemd` que activen el entorno virtual y arranquen Uvicorn y el servicio de ingesta.
+
+## Gestión de imágenes ALPR
+- Las cámaras pueden adjuntar imágenes base64 de matrícula (`IMAGE_OCR` → `imgMatricula`) y contexto (`IMAGE_CTX` → `imgContext`).
+- El servicio de ingesta decodifica y guarda las imágenes en `IMAGES_DIR` (por defecto `data/images`), organizado por cámara y fecha: `<IMAGES_DIR>/<DEVICE_SN>/YYYY/MM/DD/<timestamp>_plate-<PLATE>_{ocr|ctx}.jpg`.
+- En la tabla `alpr_readings` se almacenan:
+  - `has_image_ocr` / `image_ocr_path`
+  - `has_image_ctx` / `image_ctx_path`
+- El sender **solo envía** mensajes con imágenes válidas (rutas presentes en disco). Las lecturas sin imágenes o con rutas rotas se marcan como `DEAD` y no se reintentan.
+- Tras recibir `codiRetorn=1` de Mossos se eliminan la entrada en `messages_queue`, la lectura en `alpr_readings` y los ficheros de imagen asociados.
+- En despliegues productivos usa un `IMAGES_DIR` absoluto (p. ej. `/var/lib/tattilesender/images`) y garantiza permisos de escritura del usuario que ejecuta ingest y sender.
