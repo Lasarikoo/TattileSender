@@ -12,7 +12,8 @@ show_add_menu() {
         echo "2) Añadir cámaras"
         echo "3) Añadir endpoints"
         echo "4) Añadir certificados"
-        echo "5) Volver al menú principal"
+        echo "5) Descomprimir certificado PFX y asignar a municipio"
+        echo "6) Volver al menú principal"
         read -rp "Seleccione una opción: " option
         case $option in
             1)
@@ -32,6 +33,10 @@ show_add_menu() {
                 read -rp "Pulsa ENTER para continuar..." _
                 ;;
             5)
+                python -m app.scripts.import_certificate_from_pfx
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            6)
                 break
                 ;;
             *)

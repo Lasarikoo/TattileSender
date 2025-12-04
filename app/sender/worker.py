@@ -133,13 +133,18 @@ def process_message(session: Session, message: MessageQueue) -> None:
 
     timeout_seconds = max((endpoint.timeout_ms or 5000) / 1000.0, 1.0)
     cert_path = _full_cert_path(certificate.path or "")
+    key_path = _full_cert_path(certificate.key_path) if certificate.key_path else None
+
     if not os.path.exists(cert_path):
         _mark_dead(session, message, f"Certificate file not found: {cert_path}")
+        return
+    if key_path and not os.path.exists(key_path):
+        _mark_dead(session, message, f"Key file not found: {key_path}")
         return
 
     client = MossosClient(
         endpoint_url=endpoint.url,
-        cert_full_path=cert_path,
+        cert_full_path=(cert_path, key_path) if key_path else cert_path,
         timeout=timeout_seconds,
     )
 
