@@ -7,7 +7,7 @@ mínimas de la base de datos.
 from fastapi import FastAPI
 from sqlalchemy import func
 
-from app.models import AlprReading, MessageQueue, SessionLocal
+from app.models import AlprReading, MessageQueue, MessageStatus, SessionLocal
 
 app = FastAPI(title="TattileSender", version="0.1.0")
 
@@ -18,7 +18,21 @@ def healthcheck() -> dict[str, int | str]:
 
     session = SessionLocal()
     try:
-        pending_messages = session.query(func.count(MessageQueue.id)).filter(MessageQueue.status == "PENDING").scalar()
+        pending_messages = (
+            session.query(func.count(MessageQueue.id))
+            .filter(MessageQueue.status == MessageStatus.PENDING)
+            .scalar()
+        )
+        failed_messages = (
+            session.query(func.count(MessageQueue.id))
+            .filter(MessageQueue.status == MessageStatus.FAILED)
+            .scalar()
+        )
+        dead_messages = (
+            session.query(func.count(MessageQueue.id))
+            .filter(MessageQueue.status == MessageStatus.DEAD)
+            .scalar()
+        )
         total_readings = session.query(func.count(AlprReading.id)).scalar()
     finally:
         session.close()
@@ -26,5 +40,7 @@ def healthcheck() -> dict[str, int | str]:
     return {
         "status": "ok",
         "pending_messages": int(pending_messages or 0),
+        "failed_messages": int(failed_messages or 0),
+        "dead_messages": int(dead_messages or 0),
         "total_readings": int(total_readings or 0),
     }

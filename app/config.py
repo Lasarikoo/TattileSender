@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     transit_port: int = Field(33334, env="TRANSIT_PORT")
     app_env: str = Field("dev", env="APP_ENV")
 
+    sender_enabled: bool = Field(True, env="SENDER_ENABLED")
+    sender_poll_interval_seconds: int = Field(5, env="SENDER_POLL_INTERVAL_SECONDS")
+    sender_max_batch_size: int = Field(50, env="SENDER_MAX_BATCH_SIZE")
+    sender_default_retry_max: int = Field(3, env="SENDER_DEFAULT_RETRY_MAX")
+    sender_default_backoff_ms: int = Field(1000, env="SENDER_DEFAULT_BACKOFF_MS")
+
     @property
     def CERTS_DIR(self) -> str:
         """Alias en mayúsculas para compatibilidad con scripts auxiliares."""
