@@ -24,6 +24,7 @@ from sqlalchemy import (
     create_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+from sqlalchemy.sql import func
 
 from app.config import settings
 
@@ -60,14 +61,27 @@ class Certificate(Base):
     __tablename__ = "certificates"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    alias: Mapped[str | None] = mapped_column(String(255), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="PEM_PAIR")
     path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     key_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    pfx_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    privpub_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    public_cert_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     password_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    municipality_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("municipalities.id"), nullable=True
+    )
     valid_from: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     valid_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, server_default=func.now()
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, server_default=func.now(), onupdate=func.now()
+    )
 
     municipalities: Mapped[List["Municipality"]] = relationship(
         "Municipality", back_populates="certificate"
@@ -109,6 +123,12 @@ class Camera(Base):
     )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    coord_x: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="Coordenada X UTM31N-ETRS89 con dos decimales"
+    )
+    coord_y: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="Coordenada Y UTM31N-ETRS89 con dos decimales"
+    )
     utm_x: Mapped[float | None] = mapped_column(
         Float, nullable=True, comment="UTM31N-ETRS89 X (Este), 2 decimales"
     )
