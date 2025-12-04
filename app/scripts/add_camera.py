@@ -57,6 +57,17 @@ def main() -> None:
     print("=== Añadir cámara ===")
     serial_number = input("Serial number (DEVICE_SN): ").strip()
     codigo_lector = input("Código lector: ").strip()
+    utm_x_str = input("Coordenada UTM X (Este, UTM31N ETRS89, 2 decimales): ").strip()
+    utm_y_str = input("Coordenada UTM Y (Norte, UTM31N ETRS89, 2 decimales): ").strip()
+
+    try:
+        utm_x = float(utm_x_str.replace(",", "."))
+        utm_y = float(utm_y_str.replace(",", "."))
+    except ValueError:
+        print(
+            "[ADD CAMERA][ERROR] Coordenadas inválidas. Deben ser números (pueden llevar coma o punto)."
+        )
+        return
 
     session = SessionLocal()
     try:
@@ -71,6 +82,8 @@ def main() -> None:
             codigo_lector=codigo_lector,
             municipality_id=municipality.id,
             endpoint_id=endpoint.id if endpoint else None,
+            utm_x=utm_x,
+            utm_y=utm_y,
             active=True,
         )
         session.add(camera)

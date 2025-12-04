@@ -13,7 +13,16 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    create_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from app.config import settings
@@ -52,8 +61,9 @@ class Certificate(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="PEM_PAIR")
     path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    key_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     password_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     valid_from: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     valid_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -98,6 +108,13 @@ class Camera(Base):
         Integer, ForeignKey("certificates.id"), nullable=True
     )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    utm_x: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="UTM31N-ETRS89 X (Este), 2 decimales"
+    )
+    utm_y: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="UTM31N-ETRS89 Y (Norte), 2 decimales"
+    )
 
     municipality: Mapped["Municipality"] = relationship("Municipality", back_populates="cameras")
     endpoint: Mapped[Optional["Endpoint"]] = relationship("Endpoint", back_populates="cameras")

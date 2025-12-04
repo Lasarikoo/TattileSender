@@ -41,7 +41,7 @@ class MossosClient:
     def __init__(
         self,
         endpoint_url: str,
-        cert_full_path: str,
+        cert_full_path: str | tuple[str, str | None],
         cert_password: Optional[str] = None,
         timeout: float = 5.0,
         verify: bool = True,
@@ -95,6 +95,12 @@ class MossosClient:
         ET.SubElement(request, ET.QName(MATRICULA_NS, "horaLectura")).text = hora_str
         ET.SubElement(request, ET.QName(MATRICULA_NS, "imgMatricula")).text = img_ocr_b64
         ET.SubElement(request, ET.QName(MATRICULA_NS, "imgContext")).text = img_ctx_b64
+
+        if camera.utm_x is not None and camera.utm_y is not None:
+            coord_x_str = f"{camera.utm_x:.2f}"
+            coord_y_str = f"{camera.utm_y:.2f}"
+            ET.SubElement(request, ET.QName(MATRICULA_NS, "coordenadaX")).text = coord_x_str
+            ET.SubElement(request, ET.QName(MATRICULA_NS, "coordenadaY")).text = coord_y_str
 
         return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
 
