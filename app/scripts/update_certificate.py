@@ -56,8 +56,6 @@ def main() -> None:
             certificate.name = new_alias
         if municipality:
             certificate.municipality_id = municipality.id
-            municipality.certificate_id = certificate.id
-            session.add(municipality)
 
         session.add(certificate)
         session.commit()

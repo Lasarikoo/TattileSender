@@ -40,16 +40,17 @@ class Municipality(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    certificate_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("certificates.id"), nullable=True
-    )
     endpoint_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("endpoints.id"), nullable=True
     )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     certificate: Mapped[Optional["Certificate"]] = relationship(
-        "Certificate", back_populates="municipalities", lazy="joined"
+        "Certificate",
+        back_populates="municipality",
+        foreign_keys="Certificate.municipality_id",
+        lazy="joined",
+        uselist=False,
     )
     endpoint: Mapped[Optional["Endpoint"]] = relationship(
         "Endpoint", back_populates="municipalities", lazy="joined"
@@ -70,8 +71,8 @@ class Certificate(Base):
     privpub_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     public_cert_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     password_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    municipality_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("municipalities.id"), nullable=True
+    municipality_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("municipalities.id"), nullable=False
     )
     valid_from: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     valid_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -83,8 +84,10 @@ class Certificate(Base):
         DateTime(timezone=True), nullable=True, server_default=func.now(), onupdate=func.now()
     )
 
-    municipalities: Mapped[List["Municipality"]] = relationship(
-        "Municipality", back_populates="certificate"
+    municipality: Mapped["Municipality"] = relationship(
+        "Municipality",
+        back_populates="certificate",
+        foreign_keys=[municipality_id],
     )
     cameras: Mapped[List["Camera"]] = relationship("Camera", back_populates="certificate")
 

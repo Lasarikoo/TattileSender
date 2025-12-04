@@ -16,7 +16,10 @@ def main() -> None:
 
         print("Municipios disponibles:")
         for m in municipalities:
-            print(f"- {m.id}: {m.name} (cert actual: {m.certificate_id})")
+            current_cert = m.certificate
+            print(
+                f"- {m.id}: {m.name} (cert actual: {current_cert.id if current_cert else 'N/A'})"
+            )
 
         muni_id = int(input("ID del municipio a actualizar: ").strip())
         municipality = session.get(Municipality, muni_id)
@@ -34,8 +37,8 @@ def main() -> None:
             print("Certificado no encontrado")
             return
 
-        municipality.certificate_id = certificate.id
-        session.add(municipality)
+        certificate.municipality_id = municipality.id
+        session.add(certificate)
         session.commit()
         print(f"Certificado {certificate.name} asignado a {municipality.name}")
     finally:

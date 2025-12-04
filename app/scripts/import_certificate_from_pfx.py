@@ -179,15 +179,14 @@ def main() -> None:
         if municipality is None:
             return
 
-        if municipality.certificate_id:
-            existing = session.get(Certificate, municipality.certificate_id)
-            if existing:
-                answer = input(
-                    "El municipio ya tiene un certificado asignado. ¿Desea reemplazarlo? (s/N): "
-                ).strip()
-                if answer.lower() not in {"s", "si", "sí", "y", "yes"}:
-                    print("[CERT IMPORT] Operación cancelada por el usuario.")
-                    return
+        if municipality.certificate:
+            existing = municipality.certificate
+            answer = input(
+                "El municipio ya tiene un certificado asignado. ¿Desea reemplazarlo? (s/N): "
+            ).strip()
+            if answer.lower() not in {"s", "si", "sí", "y", "yes"}:
+                print("[CERT IMPORT] Operación cancelada por el usuario.")
+                return
 
         certificate = Certificate(
             alias=alias,
@@ -206,8 +205,7 @@ def main() -> None:
         session.add(certificate)
         session.flush()
 
-        municipality.certificate_id = certificate.id
-        session.add(municipality)
+        session.refresh(municipality)
         session.commit()
 
         print("[CERT IMPORT][OK] Certificado importado correctamente.")
