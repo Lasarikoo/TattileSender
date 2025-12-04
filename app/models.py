@@ -10,7 +10,7 @@ Incluye las tablas principales previstas en el diseño conceptual:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, create_engine
@@ -39,10 +39,10 @@ class Municipality(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     certificate: Mapped[Optional["Certificate"]] = relationship(
-        "Certificate", back_populates="municipalities"
+        "Certificate", back_populates="municipalities", lazy="joined"
     )
     endpoint: Mapped[Optional["Endpoint"]] = relationship(
-        "Endpoint", back_populates="municipalities"
+        "Endpoint", back_populates="municipalities", lazy="joined"
     )
     cameras: Mapped[List["Camera"]] = relationship("Camera", back_populates="municipality")
 
@@ -62,6 +62,7 @@ class Certificate(Base):
     municipalities: Mapped[List["Municipality"]] = relationship(
         "Municipality", back_populates="certificate"
     )
+    cameras: Mapped[List["Camera"]] = relationship("Camera", back_populates="certificate")
 
 
 class Endpoint(Base):
@@ -93,10 +94,16 @@ class Camera(Base):
     endpoint_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("endpoints.id"), nullable=True
     )
+    certificate_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("certificates.id"), nullable=True
+    )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     municipality: Mapped["Municipality"] = relationship("Municipality", back_populates="cameras")
     endpoint: Mapped[Optional["Endpoint"]] = relationship("Endpoint", back_populates="cameras")
+    certificate: Mapped[Optional["Certificate"]] = relationship(
+        "Certificate", back_populates="cameras"
+    )
     readings: Mapped[List["AlprReading"]] = relationship("AlprReading", back_populates="camera")
 
 
@@ -127,6 +134,8 @@ class AlprReading(Base):
     char_height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     has_image_ocr: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     has_image_ctx: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    image_ocr_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    image_ctx_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     raw_xml: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
@@ -155,6 +164,32 @@ class MessageQueue(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     reading: Mapped["AlprReading"] = relationship("AlprReading", back_populates="message")
+
+    @property
+    def retry_delay(self) -> timedelta:
+        """Devuelve el tiempo de backoff basado en ``next_retry_at`` si se ha calculado."""
+
+        if self.next_retry_at and self.updated_at:
+            return self.next_retry_at - self.updated_at
+        return timedelta()
+
+
+class MessageStatus:
+    """Constantes de estado para ``MessageQueue``."""
+
+    PENDING = "PENDING"
+    SENDING = "SENDING"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    DEAD = "DEAD"

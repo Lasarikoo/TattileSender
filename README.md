@@ -64,7 +64,34 @@ python -m app.ingest.main
 ```
 El servicio escucha en el puerto definido por `TRANSIT_PORT` en `.env`, que debe coincidir con el configurado en las cámaras Tattile.
 
-### 9. Pruebas básicas en producción
+### 9. Lanzar el Sender Worker (Fase 2)
+```bash
+source .venv/bin/activate
+python -m app.sender.main
+```
+El worker consulta la tabla `messages_queue` y envía lecturas al endpoint SOAP
+configurado por municipio o cámara. Respeta los parámetros de reintentos
+definidos en BD (`retry_max`, `retry_backoff_ms`) o, en su defecto, las
+variables de entorno `SENDER_*`.
+
+Ejemplo de unidad `systemd` mínima:
+```
+[Unit]
+Description=TattileSender - Worker Mossos
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/TattileSender
+EnvironmentFile=/opt/TattileSender/.env
+ExecStart=/opt/TattileSender/.venv/bin/python -m app.sender.main
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+Recuerda ejecutar `daemon-reload` y `enable --now` tras crear la unidad.
+
+### 10. Pruebas básicas en producción
 - Probar la API:
   ```bash
   curl http://127.0.0.1:8000/health
@@ -107,6 +134,7 @@ Cuando uses Docker, `DB_HOST` puede ser `db` si ejecutas procesos en contenedore
 ## Panel de ajustes y certificados
 - El directorio de certificados se define con `CERTS_DIR` en `.env` (por defecto `/etc/tattile_sender/certs`).
 - Copia los ficheros de certificados al servidor (por ejemplo con `scp`) dentro de ese directorio.
+- Convierte previamente los `.pfx` entregados por Mossos a PEM (cert + clave) siguiendo las notas en `docs/mossos/README.md`.
 - Para registrar municipios, cámaras, endpoints y certificados en BD usa:
   ```bash
   ./ajustes.sh
