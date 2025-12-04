@@ -68,6 +68,9 @@ def parse_tattile_xml(xml_str: str) -> dict:
     bbox_max_y = _get_text(root, "ORIG_PLATE_MAX_Y")
     char_height = _get_text(root, "CHAR_HEIGHT") or _get_text(root, "PLATE_CHAR_HEIGHT")
 
+    image_ocr_b64 = _get_text(root, "IMAGE_OCR")
+    image_ctx_b64 = _get_text(root, "IMAGE_CTX")
+
     parsed = {
         "plate": plate,
         "timestamp_utc": timestamp_utc,
@@ -83,8 +86,10 @@ def parse_tattile_xml(xml_str: str) -> dict:
         "bbox_max_x": int(bbox_max_x) if bbox_max_x else None,
         "bbox_max_y": int(bbox_max_y) if bbox_max_y else None,
         "char_height": int(char_height) if char_height else None,
-        "has_image_ocr": bool(_get_text(root, "IMAGE_OCR")),
-        "has_image_ctx": bool(_get_text(root, "IMAGE_CTX")),
+        "has_image_ocr": bool(image_ocr_b64),
+        "has_image_ctx": bool(image_ctx_b64),
+        "image_ocr_b64": image_ocr_b64,
+        "image_ctx_b64": image_ctx_b64,
         "raw_xml": xml_str,
     }
 

@@ -5,11 +5,12 @@ import logging
 import socket
 from typing import Callable
 
-from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 
-from app.config import settings
+from sqlalchemy.orm import Session
 from app.ingest.parser import TattileParseError, parse_tattile_xml
 from app.models import AlprReading, Camera, MessageQueue, SessionLocal
+from app.utils.images import save_reading_image
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,33 @@ def process_tattile_payload(xml_str: str, session: Session) -> None:
             session.rollback()
             return
 
+        timestamp = parsed.get("timestamp_utc") or datetime.now(timezone.utc)
+
+        image_ocr_path = None
+        image_ctx_path = None
+
+        if parsed.get("image_ocr_b64"):
+            image_ocr_path = save_reading_image(
+                plate=parsed.get("plate") or "",
+                device_sn=device_sn,
+                timestamp_utc=timestamp,
+                kind="ocr",
+                base64_data=parsed.get("image_ocr_b64") or "",
+            )
+        if parsed.get("image_ctx_b64"):
+            image_ctx_path = save_reading_image(
+                plate=parsed.get("plate") or "",
+                device_sn=device_sn,
+                timestamp_utc=timestamp,
+                kind="ctx",
+                base64_data=parsed.get("image_ctx_b64") or "",
+            )
+
         reading = AlprReading(
             camera_id=camera.id,
             device_sn=device_sn,
             plate=parsed.get("plate"),
-            timestamp_utc=parsed.get("timestamp_utc"),
+            timestamp_utc=timestamp,
             direction=parsed.get("direction"),
             lane_id=parsed.get("lane_id"),
             lane_descr=parsed.get("lane_descr"),
@@ -48,8 +71,10 @@ def process_tattile_payload(xml_str: str, session: Session) -> None:
             bbox_max_x=parsed.get("bbox_max_x"),
             bbox_max_y=parsed.get("bbox_max_y"),
             char_height=parsed.get("char_height"),
-            has_image_ocr=parsed.get("has_image_ocr", False),
-            has_image_ctx=parsed.get("has_image_ctx", False),
+            has_image_ocr=bool(image_ocr_path),
+            has_image_ctx=bool(image_ctx_path),
+            image_ocr_path=image_ocr_path,
+            image_ctx_path=image_ctx_path,
             raw_xml=xml_str,
         )
         session.add(reading)

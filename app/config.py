@@ -5,7 +5,13 @@ principales de la aplicación. En producción, las variables se leen del entorno
 (sistema o servicio de secrets). En desarrollo se puede usar un archivo `.env`
 que se cargará con herramientas como `python-dotenv`.
 """
+import logging
+import os
+
 from pydantic import BaseSettings, Field
+
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -32,11 +38,23 @@ class Settings(BaseSettings):
     sender_default_retry_max: int = Field(3, env="SENDER_DEFAULT_RETRY_MAX")
     sender_default_backoff_ms: int = Field(1000, env="SENDER_DEFAULT_BACKOFF_MS")
 
+    images_dir: str = Field(
+        "data/images",
+        env="IMAGES_DIR",
+        description="Directorio base para almacenar imágenes ALPR",
+    )
+
     @property
     def CERTS_DIR(self) -> str:
         """Alias en mayúsculas para compatibilidad con scripts auxiliares."""
 
         return self.certs_dir
+
+    @property
+    def IMAGES_DIR(self) -> str:
+        """Alias en mayúsculas para compatibilidad con scripts auxiliares."""
+
+        return self.images_dir
 
     @property
     def database_url(self) -> str:
@@ -52,4 +70,12 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
 
 
+def _ensure_images_dir(path: str) -> None:
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as exc:  # pragma: no cover - filesystem defensive
+        logger.error("No se pudo crear el directorio de imágenes %s: %s", path, exc)
+
+
 settings = Settings()
+_ensure_images_dir(settings.images_dir)

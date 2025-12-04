@@ -37,6 +37,9 @@ Este documento resume cómo preparar certificados y cómo funciona el cliente SO
 
 - Los reintentos dependen del endpoint (`retry_max`, `retry_backoff_ms`) o de
   los valores por defecto definidos en configuración.
+- Los mensajes cuya lectura no tenga imágenes válidas (`has_image_ocr/ctx` falso,
+  rutas nulas o ficheros inexistentes) se marcan inmediatamente como `DEAD`
+  con errores `NO_IMAGE_AVAILABLE` o `NO_IMAGE_FILE` y **no** se reintentan.
 - Tras un `codiRetorn=1`:
   - Se eliminan las imágenes en disco (si existen rutas registradas).
   - Se borran los registros `alpr_readings` y `messages_queue` asociados.
