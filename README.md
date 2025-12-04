@@ -2,142 +2,109 @@
 
 Servicio backend en Python diseñado para recibir lecturas ALPR de cámaras Tattile en formato XML y reenviarlas al endpoint SOAP de Mossos d'Esquadra usando certificados PFX específicos por cámara o municipio.
 
-## Requisitos previos
-- Python 3.11 o superior.
-- PostgreSQL 15 o superior (puede ser local o vía Docker).
-- `pip` junto a `virtualenv`/`pipenv` para gestionar entornos.
-- Opcional: Docker y Docker Compose para levantar servicios rápidamente.
+## Despliegue en servidor Ubuntu (producción sencilla)
+El flujo recomendado asume un VPS Ubuntu protegido, sin contenedores para la aplicación principal.
 
-## Configuración del entorno (.env)
-En la raíz existe un archivo `.env.example` con las variables necesarias. Cópialo y ajústalo según tu entorno:
+### 1. Instalar dependencias del sistema
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip postgresql postgresql-contrib git
+```
 
+### 2. Clonar el repositorio privado
+```bash
+cd /opt
+git clone <URL_PRIVADA_REPO> TattileSender
+cd TattileSender
+```
+
+### 3. Crear y activar entorno virtual en el VPS
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 4. Crear base de datos y usuario en PostgreSQL para producción
+```bash
+sudo -u postgres psql
+CREATE USER tattile_prod WITH PASSWORD 'cambia_est0';
+CREATE DATABASE tattile_sender_prod OWNER tattile_prod;
+GRANT ALL PRIVILEGES ON DATABASE tattile_sender_prod TO tattile_prod;
+\q
+```
+
+### 5. Configurar el archivo `.env`
+Copia la plantilla y ajusta valores reales:
 ```bash
 cp .env.example .env
 ```
+Edita `.env` con las credenciales creadas en el paso anterior y rutas seguras para los certificados.
 
-Variables principales:
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`: datos de conexión a PostgreSQL.
-- `CERTS_DIR`: ruta donde se almacenan los certificados PFX en el servidor.
-- `TRANSIT_PORT`: puerto en el que el servicio de ingesta escuchará las lecturas Tattile.
-- `APP_ENV`: entorno de ejecución (`dev`, `prod`, etc.).
-
-Valores habituales para desarrollo local:
-- `DB_HOST=localhost`
-- `DB_PORT=5432`
-- `DB_NAME=tattile_sender`
-- `DB_USER=tattile`
-- `DB_PASSWORD=changeme`
-
-## Instalación de dependencias
-1. Crear y activar el entorno virtual:
-
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate       # Linux/macOS
-   .venv\Scripts\activate         # Windows
-   ```
-
-2. Instalar las dependencias del proyecto:
-
-   ```bash
-   pip install --upgrade pip
-   pip install -r requirements.txt
-   ```
-
-## Configurar PostgreSQL (local)
-Ejemplo básico creando usuario y base de datos que coincidan con el `.env`:
-
+### 6. Ejecutar migraciones Alembic usando SIEMPRE el venv
+Activa el entorno virtual y lanza las migraciones:
 ```bash
-sudo -u postgres psql
-CREATE USER tattile WITH PASSWORD 'changeme';
-CREATE DATABASE tattile_sender OWNER tattile;
-GRANT ALL PRIVILEGES ON DATABASE tattile_sender TO tattile;
+source .venv/bin/activate  # si aún no está activado
+python -m alembic upgrade head
 ```
+Asegúrate de que `which alembic` apunte a `.venv/bin/alembic` y no a `/usr/bin/alembic`.
 
-Confirma que los valores utilizados son los mismos definidos en tus variables de entorno.
-
-## Usando Docker para PostgreSQL
-El proyecto incluye un `docker-compose.yml` con un servicio `db` de PostgreSQL. Para levantar solo la base de datos:
-
+### 7. Lanzar la API en modo producción simple
 ```bash
-docker compose up -d db
+source .venv/bin/activate
+uvicorn app.api.main:app --host 0.0.0.0 --port 8000
 ```
+Para producción final, conviene situar Uvicorn detrás de un proxy inverso (Nginx) o definir un servicio `systemd`, aunque no es obligatorio para la puesta en marcha inicial.
 
-Cuando usas Docker Compose, `DB_HOST` puede ser `db` (nombre del servicio) si los procesos se ejecutan dentro de los contenedores, o `localhost` si accedes desde el host.
-
-## Migraciones de base de datos (Alembic)
-Ejecuta las migraciones antes de iniciar los servicios para crear las tablas iniciales (`municipalities`, `certificates`, `endpoints`, `cameras`, `alpr_readings`, `messages_queue`, etc.):
-
+### 8. Lanzar el Ingest Service en el VPS
 ```bash
-alembic upgrade head
-```
-
-## Lanzar la API (FastAPI)
-Arranca la API en modo desarrollo con Uvicorn:
-
-```bash
-uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Prueba el endpoint de salud:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-La ruta `/health` devuelve el estado general, mensajes pendientes en la cola y el total de lecturas almacenadas.
-
-## Lanzar el Ingest Service
-El servicio de ingesta escucha el puerto Tattile definido en `TRANSIT_PORT`, recibe XML de lecturas, los parsea y los guarda en la base de datos.
-
-Inícialo con:
-
-```bash
+source .venv/bin/activate
 python -m app.ingest.main
 ```
+El servicio escucha en el puerto definido por `TRANSIT_PORT` en `.env`, que debe coincidir con el configurado en las cámaras Tattile.
 
-`TRANSIT_PORT` determina el puerto de escucha. Para simular una lectura vía `netcat`:
+### 9. Pruebas básicas en producción
+- Probar la API:
+  ```bash
+  curl http://127.0.0.1:8000/health
+  ```
+- Simular una lectura desde el propio servidor (ajusta `<TRANSIT_PORT>` con el valor real):
+  ```bash
+  nc 127.0.0.1 <TRANSIT_PORT> << 'EOF'
+  <?xml version="1.0" encoding="UTF-8"?>
+  <root>
+    <!-- XML de ejemplo aquí -->
+  </root>
+  EOF
+  ```
+- Verificar datos en PostgreSQL:
+  ```bash
+  psql -h localhost -U tattile_prod -d tattile_sender_prod
+  SELECT * FROM alpr_readings ORDER BY id DESC LIMIT 5;
+  SELECT * FROM messages_queue ORDER BY id DESC LIMIT 5;
+  ```
 
+## Uso de Docker (opcional / desarrollo)
+`docker-compose.yml` sirve como ayuda para levantar rápidamente PostgreSQL en un entorno de pruebas. No es el camino principal para producción.
+
+Para iniciar solo la base de datos con Docker Compose v1 (comando clásico):
 ```bash
-nc 127.0.0.1 33334 << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<root>
-  <!-- XML de ejemplo aquí -->
-</root>
-EOF
+docker-compose up -d db
 ```
+Si tu instalación soporta el comando moderno `docker compose`, también funcionará, pero la compatibilidad con `docker-compose` es la opción segura en la mayoría de VPS.
 
-## Probar el funcionamiento (local)
-Secuencia sugerida:
-1. Levantar PostgreSQL (local o con Docker Compose).
-2. Ejecutar `alembic upgrade head` para crear el esquema.
-3. Arrancar la API con `uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000`.
-4. Arrancar el Ingest Service con `python -m app.ingest.main`.
-5. Enviar un XML de prueba usando `nc` contra el puerto configurado.
-6. Consultar la base de datos, por ejemplo:
-   ```sql
-   SELECT * FROM alpr_readings LIMIT 5;
-   SELECT * FROM messages_queue LIMIT 5;
-   ```
-7. Llamar a `/health` para verificar `pending_messages` y `total_readings`.
-
-## Despliegue básico en un VPS Ubuntu (resumen)
-- Instalar Python 3, PostgreSQL, Git y dependencias del sistema.
-- Clonar el repositorio y crear el archivo `.env` a partir de `.env.example` con valores reales.
-- Crear el usuario y la base de datos en PostgreSQL para el proyecto.
-- Instalar dependencias con `pip install -r requirements.txt`.
-- Ejecutar las migraciones con `alembic upgrade head`.
-- Arrancar la API y el Ingest Service inicialmente desde terminal (o `tmux/screen`).
-- Configurar la cámara Tattile para enviar lecturas al puerto del VPS.
-- En fases posteriores se definirán servicios `systemd` para automatizar API e ingesta.
+Cuando uses Docker, `DB_HOST` puede ser `db` si ejecutas procesos en contenedores y `localhost` si accedes desde el host. La API y el Ingest Service se ejecutan desde el entorno virtual de Python según las instrucciones anteriores.
 
 ## Estructura del proyecto
 - `app/`: código fuente (configuración, API, servicios de ingesta y envío).
+- `alembic/`: migraciones de base de datos.
 - `docs/`: documentación funcional, técnica y de despliegue.
 - `legacy/`: artefactos heredados (binarios, capturas, logs) **sin** incluir certificados.
-- `.env.example`: plantilla de variables de entorno.
-- `docker-compose.yml`: base para levantar PostgreSQL y servir de referencia futura para API/ingesta.
+- `.env.example`: plantilla de variables de entorno orientada a producción.
+- `docker-compose.yml`: apoyo opcional para disponer de PostgreSQL en pruebas.
 
 ## Notas
-- No se deben almacenar certificados `.pfx` ni contraseñas reales en el repositorio.
-- En producción se recomienda gestionar variables mediante el entorno del sistema o servicios de secretos.
+- No almacenes certificados `.pfx` ni contraseñas reales en el repositorio.
+- En producción se recomienda gestionar variables de entorno mediante el sistema o un servicio de secretos.
+- Para automatizar la puesta en marcha se pueden crear unidades `systemd` que activen el entorno virtual y arranquen Uvicorn y el servicio de ingesta.
