@@ -104,6 +104,15 @@ Cuando uses Docker, `DB_HOST` puede ser `db` si ejecutas procesos en contenedore
 - `.env.example`: plantilla de variables de entorno orientada a producción.
 - `docker-compose.yml`: apoyo opcional para disponer de PostgreSQL en pruebas.
 
+## Panel de ajustes y certificados
+- El directorio de certificados se define con `CERTS_DIR` en `.env` (por defecto `/etc/tattile_sender/certs`).
+- Copia los ficheros de certificados al servidor (por ejemplo con `scp`) dentro de ese directorio.
+- Para registrar municipios, cámaras, endpoints y certificados en BD usa:
+  ```bash
+  ./ajustes.sh
+  ```
+  y sigue las opciones de menú.
+
 ## Notas
 - No almacenes certificados `.pfx` ni contraseñas reales en el repositorio.
 - En producción se recomienda gestionar variables de entorno mediante el sistema o un servicio de secretos.

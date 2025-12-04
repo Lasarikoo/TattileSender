@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     app_env: str = Field("dev", env="APP_ENV")
 
     @property
+    def CERTS_DIR(self) -> str:
+        """Alias en mayúsculas para compatibilidad con scripts auxiliares."""
+
+        return self.certs_dir
+
+    @property
     def database_url(self) -> str:
         """Construye la URL de conexión a PostgreSQL para SQLAlchemy."""
 
