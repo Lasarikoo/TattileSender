@@ -22,44 +22,52 @@ def process_tattile_payload(xml_str: str, session: Session) -> None:
     un aviso y la lectura no se guarda.
     """
 
-    parsed = parse_tattile_xml(xml_str)
-    device_sn = parsed["device_sn"]
+    try:
+        parsed = parse_tattile_xml(xml_str)
+        device_sn = parsed["device_sn"]
 
-    camera = session.query(Camera).filter(Camera.serial_number == device_sn).first()
-    if not camera:
-        logger.warning("Cámara no registrada para DEVICE_SN=%s", device_sn)
-        return
+        camera = session.query(Camera).filter(Camera.serial_number == device_sn).first()
+        if not camera:
+            print(f"[INGEST] Cámara no registrada para DEVICE_SN={device_sn}")
+            session.rollback()
+            return
 
-    reading = AlprReading(
-        camera_id=camera.id,
-        device_sn=device_sn,
-        plate=parsed.get("plate"),
-        timestamp_utc=parsed.get("timestamp_utc"),
-        direction=parsed.get("direction"),
-        lane_id=parsed.get("lane_id"),
-        lane_descr=parsed.get("lane_descr"),
-        ocr_score=parsed.get("ocr_score"),
-        country_code=parsed.get("country_code"),
-        country=parsed.get("country"),
-        bbox_min_x=parsed.get("bbox_min_x"),
-        bbox_min_y=parsed.get("bbox_min_y"),
-        bbox_max_x=parsed.get("bbox_max_x"),
-        bbox_max_y=parsed.get("bbox_max_y"),
-        char_height=parsed.get("char_height"),
-        has_image_ocr=parsed.get("has_image_ocr", False),
-        has_image_ctx=parsed.get("has_image_ctx", False),
-        raw_xml=parsed.get("raw_xml"),
-    )
-    session.add(reading)
-    session.flush()
+        reading = AlprReading(
+            camera_id=camera.id,
+            device_sn=device_sn,
+            plate=parsed.get("plate"),
+            timestamp_utc=parsed.get("timestamp_utc"),
+            direction=parsed.get("direction"),
+            lane_id=parsed.get("lane_id"),
+            lane_descr=parsed.get("lane_descr"),
+            ocr_score=parsed.get("ocr_score"),
+            country_code=parsed.get("country_code"),
+            country=parsed.get("country"),
+            bbox_min_x=parsed.get("bbox_min_x"),
+            bbox_min_y=parsed.get("bbox_min_y"),
+            bbox_max_x=parsed.get("bbox_max_x"),
+            bbox_max_y=parsed.get("bbox_max_y"),
+            char_height=parsed.get("char_height"),
+            has_image_ocr=parsed.get("has_image_ocr", False),
+            has_image_ctx=parsed.get("has_image_ctx", False),
+            raw_xml=xml_str,
+        )
+        session.add(reading)
+        session.flush()
 
-    message = MessageQueue(reading_id=reading.id, status="PENDING", attempts=0)
-    session.add(message)
-    session.commit()
+        message = MessageQueue(reading_id=reading.id, status="PENDING", attempts=0)
+        session.add(message)
 
-    logger.info(
-        "Lectura almacenada: plate=%s camera_id=%s message_id=%s", reading.plate, camera.id, message.id
-    )
+        session.commit()
+
+        print(
+            f"[INGEST] Lectura guardada plate={reading.plate} "
+            f"camera_id={reading.camera_id} reading_id={reading.id} msg_id={message.id}"
+        )
+    except Exception as exc:
+        session.rollback()
+        print(f"[INGEST][ERROR] {exc}")
+        raise
 
 
 def _serve_connection(conn: socket.socket, addr: tuple, session_factory: Callable[[], Session]) -> None:
@@ -76,6 +84,7 @@ def _serve_connection(conn: socket.socket, addr: tuple, session_factory: Callabl
         return
 
     xml_str = b"".join(data_chunks).decode("utf-8", errors="replace")
+    print(f"[INGEST] XML recibido desde {addr}")
     session = session_factory()
     try:
         process_tattile_payload(xml_str, session)
