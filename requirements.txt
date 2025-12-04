@@ -6,7 +6,5 @@ alembic>=1.12.0
 psycopg2-binary>=2.9.0
 python-dotenv>=1.0.0
 requests>=2.31.0
-pydantic>=2.6.0
-
-# Instalación recomendada:
-#   pip install -r requirements.txt
+# BaseSettings proviene de Pydantic v1; fijamos versión 1.x para compatibilidad
+pydantic>=1.10,<2.0

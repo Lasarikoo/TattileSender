@@ -1,8 +1,10 @@
 version: "3.9"
 
-# Usa este archivo para levantar rápidamente PostgreSQL en local. La API y el
-# Ingest Service se ejecutan desde el host (entorno virtual de Python) por el
-# momento. Puedes dejar corriendo solo la base de datos con:
+# Archivo auxiliar para levantar PostgreSQL en entornos de prueba.
+# El despliegue recomendado en producción es instalar PostgreSQL vía apt en el VPS.
+# Para compatibilidad con Docker Compose v1, el comando sugerido es:
+#   docker-compose up -d db
+# Si tu entorno soporta la sintaxis moderna, también funcionará:
 #   docker compose up -d db
 
 services:
