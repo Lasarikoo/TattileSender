@@ -1,4 +1,9 @@
-"""Entry point para lanzar el servicio de ingesta."""
+"""Entry point para lanzar el servicio de ingesta.
+
+Ejecuta este módulo con `python -m app.ingest.main`; leerá el puerto de
+`TRANSIT_PORT` definido en el `.env` y pondrá a escuchar el servicio para
+recibir XML desde las cámaras Tattile.
+"""
 from app.ingest.service import run_ingest_service
 
 
