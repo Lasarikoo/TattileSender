@@ -1,15 +1,28 @@
 """Aplicación FastAPI mínima para TattileSender.
 
-En fases posteriores se añadirán endpoints de administración, métricas y
-observabilidad. Por ahora solo se expone `/health` para validar que la API se
-levanta correctamente.
+Expone un endpoint `/health` básico con métricas mínimas de la base de datos.
 """
 from fastapi import FastAPI
+from sqlalchemy import func
 
-app = FastAPI(title="TattileSender", version="0.0.0")
+from app.models import AlprReading, MessageQueue, SessionLocal
+
+app = FastAPI(title="TattileSender", version="0.1.0")
 
 
 @app.get("/health")
-def healthcheck() -> dict[str, str]:
-    """Devuelve el estado mínimo de la API."""
-    return {"status": "ok", "service": "tattile-sender"}
+def healthcheck() -> dict[str, int | str]:
+    """Endpoint de salud y conteo mínimo de lecturas y cola."""
+
+    session = SessionLocal()
+    try:
+        pending_messages = session.query(func.count(MessageQueue.id)).filter(MessageQueue.status == "PENDING").scalar()
+        total_readings = session.query(func.count(AlprReading.id)).scalar()
+    finally:
+        session.close()
+
+    return {
+        "status": "ok",
+        "pending_messages": int(pending_messages or 0),
+        "total_readings": int(total_readings or 0),
+    }
