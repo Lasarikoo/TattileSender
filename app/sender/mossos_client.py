@@ -29,14 +29,13 @@ class MossosSendResult:
     fault: Optional[str]
     raw_response: Optional[str] = None
 
-
-def _encode_image_base64(path: Optional[str], label: str) -> bytes:
+def load_image_base64(path: Optional[str]) -> bytes:
     if not path:
-        raise FileNotFoundError(f"Ruta de imagen no disponible para {label}")
+        raise FileNotFoundError("Ruta de imagen no disponible")
 
     full_path = resolve_image_path(path)
     if not full_path.is_file():
-        raise FileNotFoundError(f"{label}: fichero no encontrado en {full_path}")
+        raise FileNotFoundError(f"Fichero no encontrado en {full_path}")
 
     return base64.b64encode(full_path.read_bytes())
 
@@ -73,9 +72,6 @@ class MossosZeepClient:
             if endpoint_url
             else self.client.service
         )
-        self.matricula_request_element = self.client.get_element(
-            "{http://dgp.gencat.cat/matricules}matriculaRequest"
-        )
         logger.info("[MOSSOS] WS-Security X509 Signature habilitada (endpoint=%s)", endpoint_url)
 
     def _format_date_time(self, timestamp: datetime) -> tuple[str, str]:
@@ -90,11 +86,15 @@ class MossosZeepClient:
         if not reading.timestamp_utc:
             raise ValueError("La lectura no tiene timestamp para matriculaRequest")
 
+        MatriculaRequestElement = self.client.get_element(
+            "{http://dgp.gencat.cat/matricules}matriculaRequest"
+        )
+
         data_str, hora_str = self._format_date_time(reading.timestamp_utc)
-        img_ocr_b64 = _encode_image_base64(reading.image_ocr_path, "imgMatricula")
+        img_ocr_b64 = load_image_base64(reading.image_ocr_path)
         img_ctx_b64 = b""
         if getattr(reading, "has_image_ctx", False) and reading.image_ctx_path:
-            img_ctx_b64 = _encode_image_base64(reading.image_ctx_path, "imgContext")
+            img_ctx_b64 = load_image_base64(reading.image_ctx_path)
 
         coord_x_value = camera.coord_x or (
             f"{camera.utm_x:.2f}" if camera.utm_x is not None else None
@@ -103,7 +103,7 @@ class MossosZeepClient:
             f"{camera.utm_y:.2f}" if camera.utm_y is not None else None
         )
 
-        matricula_el = self.matricula_request_element(
+        matricula_el = MatriculaRequestElement(
             codiLector=camera.codigo_lector,
             matricula=reading.plate or "",
             dataLectura=data_str,
@@ -128,7 +128,7 @@ class MossosZeepClient:
     def send_matricula(self, reading: AlprReading, camera: Camera) -> MossosSendResult:
         request_el = self.build_matricula_request(reading, camera)
         try:
-            response = self.service.matricula(matriculaRequest=request_el)
+            response = self.service.matricula(request_el)
             codi_retorn = getattr(response, "codiRetorn", None)
             success = codi_retorn in ("OK", "0000", "1")
             return MossosSendResult(
