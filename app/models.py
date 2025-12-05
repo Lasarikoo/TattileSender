@@ -66,6 +66,7 @@ class Certificate(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="PEM_PAIR")
     path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    client_cert_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     key_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     pfx_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     privpub_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)

@@ -203,6 +203,7 @@ def extract_and_assign_cert(
     if existing:
         certificate = existing
         certificate.path = os.path.abspath(client_path)
+        certificate.client_cert_path = os.path.abspath(client_path)
         certificate.key_path = os.path.abspath(key_path)
         certificate.type = "PEM"
         certificate.active = True
@@ -214,6 +215,7 @@ def extract_and_assign_cert(
             name=cert_name,
             type="PEM",
             path=os.path.abspath(client_path),
+            client_cert_path=os.path.abspath(client_path),
             key_path=os.path.abspath(key_path),
             pfx_path=os.path.abspath(pfx_path),
             privpub_path=os.path.abspath(privpub_path),

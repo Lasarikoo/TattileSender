@@ -19,7 +19,7 @@ from app.models import (
 )
 from app.logger import logger
 from app.sender.cleanup import delete_reading_images
-from app.sender.mossos_client import MossosClient
+from app.sender.mossos_client import MossosZeepClient
 from app.utils.images import resolve_image_path
 
 
@@ -204,25 +204,37 @@ def process_message(session: Session, message: MessageQueue) -> None:
         _mark_dead(session, message, "MUNICIPIO_NO_DISPONIBLE")
         return
 
-    timeout_seconds = max((endpoint.timeout_ms or 5000) / 1000.0, 1.0)
+    timeout_ms = endpoint.timeout_ms if getattr(endpoint, "timeout_ms", None) else int(settings.mossos_timeout * 1000)
+    timeout_seconds = max(timeout_ms / 1000.0, 1.0)
+
+    service_url = settings.MOSSOS_ENDPOINT_URL or endpoint.url
+    cert_path = getattr(certificate, "client_cert_path", None) or certificate.path
+    key_path = certificate.key_path
+    if not cert_path or not key_path:
+        logger.error(
+            "[CERT][ERROR] Certificado incompleto para mensaje %s (municipio=%s)",
+            message.id,
+            municipality.name if municipality else None,
+        )
+        _mark_dead(session, message, "CERTIFICADO_INCOMPLETO")
+        return
 
     send_started = time.monotonic()
-    client = MossosClient(
-        endpoint_url=endpoint.url,
-        timeout=timeout_seconds,
-    )
+    try:
+        client = MossosZeepClient(
+            wsdl_url=settings.MOSSOS_WSDL_URL,
+            endpoint_url=service_url,
+            cert_path=cert_path,
+            key_path=key_path,
+            timeout=timeout_seconds,
+        )
+    except FileNotFoundError as exc:
+        logger.error("[CERT][ERROR] %s", exc)
+        _mark_dead(session, message, f"CERT_FILE_NOT_FOUND:{exc}")
+        return
 
     try:
-        result = client.send_matricula(
-            reading=reading,
-            camera=camera,
-            municipality=municipality,
-            session=session,
-        )
-    except RuntimeError as exc:
-        logger.error("[CERT][ERROR] %s", exc)
-        _mark_dead(session, message, str(exc))
-        return
+        result = client.send_matricula(reading=reading, camera=camera)
     except FileNotFoundError as exc:
         _mark_dead(session, message, f"NO_IMAGE_FILE_RUNTIME: {exc}")
         logger.warning(
@@ -237,7 +249,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
         message.id,
         result.success,
         result.http_status,
-        result.matricula_ret.codi_retorn if result.matricula_ret else None,
+        result.codi_retorn,
         duration_ms,
     )
 
@@ -256,21 +268,23 @@ def process_message(session: Session, message: MessageQueue) -> None:
             "[SENDER] Envío correcto de lectura %s (msg_id=%s). Código respuesta=%s",
             reading.id,
             message.id,
-            result.matricula_ret.codi_retorn if result.matricula_ret else None,
+            result.codi_retorn,
         )
         return
 
-    error_msg = result.error_message or ""
-    if result.fault:
-        error_msg = f"FAULT {result.fault.faultcode}: {result.fault.faultstring}".strip()
-    elif result.matricula_ret:
+    error_msg = result.fault or ""
+    if result.codi_retorn:
         error_msg = (
-            f"codiRetorn={result.matricula_ret.codi_retorn}"
-            f" descr={result.matricula_ret.descripcion or ''}"
-        ).strip()
+            f"codiRetorn={result.codi_retorn}"
+            if not error_msg
+            else f"{error_msg} | codiRetorn={result.codi_retorn}"
+        )
 
-    data_error = result.matricula_ret is not None and (
-        result.matricula_ret.codi_retorn not in ("1", "0000")
+    if not error_msg:
+        error_msg = "RESPUESTA_SIN_DETALLE"
+
+    data_error = result.codi_retorn is not None and (
+        result.codi_retorn not in ("1", "0000", "OK")
     )
 
     message.last_error = error_msg
