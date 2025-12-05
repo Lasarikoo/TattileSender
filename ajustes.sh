@@ -4,6 +4,111 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$PROJECT_DIR/.venv/bin/activate"
 
+list_cameras() {
+    python - <<'PY'
+from app.models import Camera, SessionLocal
+
+
+def main():
+    session = SessionLocal()
+    try:
+        cameras = session.query(Camera).order_by(Camera.id).all()
+        if not cameras:
+            print("No hay cámaras registradas.")
+            return
+        print("Cámaras disponibles:")
+        for cam in cameras:
+            print(
+                f"- {cam.id}: {cam.serial_number} "
+                f"(municipio_id={cam.municipality_id}, endpoint_id={cam.endpoint_id}, cert_id={cam.certificate_id})"
+            )
+    finally:
+        session.close()
+
+
+if __name__ == "__main__":
+    main()
+PY
+}
+
+list_municipalities() {
+    python - <<'PY'
+from app.models import Municipality, SessionLocal
+
+
+def main():
+    session = SessionLocal()
+    try:
+        municipalities = session.query(Municipality).order_by(Municipality.id).all()
+        if not municipalities:
+            print("No hay municipios registrados.")
+            return
+        print("Municipios disponibles:")
+        for mun in municipalities:
+            print(
+                f"- {mun.id}: {mun.name} "
+                f"(endpoint_id={mun.endpoint_id}, active={mun.active})"
+            )
+    finally:
+        session.close()
+
+
+if __name__ == "__main__":
+    main()
+PY
+}
+
+list_certificates() {
+    python - <<'PY'
+from app.models import Certificate, SessionLocal
+
+
+def main():
+    session = SessionLocal()
+    try:
+        certificates = session.query(Certificate).order_by(Certificate.id).all()
+        if not certificates:
+            print("No hay certificados registrados.")
+            return
+        print("Certificados disponibles:")
+        for cert in certificates:
+            alias = f" alias={cert.alias}" if cert.alias else ""
+            print(
+                f"- {cert.id}: {cert.name}{alias} (municipio_id={cert.municipality_id})"
+            )
+    finally:
+        session.close()
+
+
+if __name__ == "__main__":
+    main()
+PY
+}
+
+list_endpoints() {
+    python - <<'PY'
+from app.models import Endpoint, SessionLocal
+
+
+def main():
+    session = SessionLocal()
+    try:
+        endpoints = session.query(Endpoint).order_by(Endpoint.id).all()
+        if not endpoints:
+            print("No hay endpoints registrados.")
+            return
+        print("Endpoints disponibles:")
+        for ep in endpoints:
+            print(f"- {ep.id}: {ep.name} ({ep.url})")
+    finally:
+        session.close()
+
+
+if __name__ == "__main__":
+    main()
+PY
+}
+
 show_add_menu() {
     while true; do
         clear
@@ -11,9 +116,8 @@ show_add_menu() {
         echo "1) Añadir municipios"
         echo "2) Añadir cámaras"
         echo "3) Añadir endpoints"
-        echo "4) Añadir certificados"
-        echo "5) Descomprimir certificado PFX y asignar a municipio"
-        echo "6) Volver al menú principal"
+        echo "4) Descomprimir certificado PFX y asignar a municipio"
+        echo "5) Volver al menú principal"
         read -rp "Seleccione una opción: " option
         case $option in
             1)
@@ -29,14 +133,10 @@ show_add_menu() {
                 read -rp "Pulsa ENTER para continuar..." _
                 ;;
             4)
-                python -m app.scripts.add_certificate
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            5)
                 python -m app.scripts.import_certificate_from_pfx
                 read -rp "Pulsa ENTER para continuar..." _
                 ;;
-            6)
+            5)
                 break
                 ;;
             *)
@@ -94,13 +194,11 @@ show_delete_menu() {
         echo "3) Eliminar certificado"
         echo "4) Eliminar endpoint"
         echo "5) Limpiar TODAS las lecturas"
-        echo "6) Limpiar TODA la cola de mensajes"
-        echo "7) Limpiar TODAS las imágenes"
-        echo "8) Limpieza total (lecturas + cola + imágenes)"
         echo "0) Volver"
         read -rp "Seleccione una opción: " option
         case $option in
             1)
+                list_cameras
                 read -rp "ID o número de serie de la cámara: " cam_id
                 read -rp "Vas a eliminar la cámara y sus datos asociados. ¿Seguro? [s/N]: " confirm
                 if [[ "$confirm" != "s" && "$confirm" != "S" ]]; then
@@ -115,6 +213,7 @@ show_delete_menu() {
                 read -rp "Pulsa ENTER para continuar..." _
                 ;;
             2)
+                list_municipalities
                 read -rp "ID o nombre del municipio: " mun_id
                 read -rp "Se borrará el municipio y datos asociados. ¿Seguro? [s/N]: " confirm
                 if [[ "$confirm" != "s" && "$confirm" != "S" ]]; then
@@ -129,6 +228,7 @@ show_delete_menu() {
                 read -rp "Pulsa ENTER para continuar..." _
                 ;;
             3)
+                list_certificates
                 read -rp "ID, alias o nombre del certificado: " cert_id
                 read -rp "¿Forzar borrado si está en uso? [s/N]: " force_cert
                 read -rp "Vas a borrar un certificado. ¿Seguro? [s/N]: " confirm
@@ -148,6 +248,7 @@ show_delete_menu() {
                 read -rp "Pulsa ENTER para continuar..." _
                 ;;
             4)
+                list_endpoints
                 read -rp "ID o nombre del endpoint: " endpoint_id
                 read -rp "¿Forzar borrado si está en uso? [s/N]: " force_ep
                 read -rp "Vas a borrar un endpoint. ¿Seguro? [s/N]: " confirm
@@ -170,33 +271,6 @@ show_delete_menu() {
                 read -rp "Vas a eliminar TODAS las lecturas. ¿Seguro? [s/N]: " confirm
                 if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
                     python -m app.admin.cli wipe-readings
-                else
-                    echo "Operación cancelada."
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            6)
-                read -rp "Vas a limpiar TODA la cola de mensajes. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
-                    python -m app.admin.cli wipe-queue
-                else
-                    echo "Operación cancelada."
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            7)
-                read -rp "Vas a borrar TODAS las imágenes físicas. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
-                    python -m app.admin.cli wipe-images
-                else
-                    echo "Operación cancelada."
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            8)
-                read -rp "Vas a borrar lecturas, cola e imágenes. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
-                    python -m app.admin.cli full-wipe
                 else
                     echo "Operación cancelada."
                 fi
