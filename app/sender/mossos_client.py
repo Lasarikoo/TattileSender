@@ -86,11 +86,10 @@ class MossosZeepClient:
         if not reading.timestamp_utc:
             raise ValueError("La lectura no tiene timestamp para matriculaRequest")
 
-        MatriculaRequestElement = self.client.get_element(
-            "{http://dgp.gencat.cat/matricules}matriculaRequest"
-        )
+        matricula_type = self.client.get_type(f"{{{MATRICULA_NS}}}MatriculaType")
 
         data_str, hora_str = self._format_date_time(reading.timestamp_utc)
+        plate = (reading.plate or "").strip().upper()[:10]
         img_ocr_b64 = load_image_base64(reading.image_ocr_path)
         img_ctx_b64 = b""
         if getattr(reading, "has_image_ctx", False) and reading.image_ctx_path:
@@ -103,25 +102,28 @@ class MossosZeepClient:
             f"{camera.utm_y:.2f}" if camera.utm_y is not None else None
         )
 
-        matricula_el = MatriculaRequestElement(
+        matricula_el = matricula_type(
             codiLector=camera.codigo_lector,
-            matricula=reading.plate or "",
+            matricula=plate,
             dataLectura=data_str,
             horaLectura=hora_str,
             imgMatricula=img_ocr_b64,
             imgContext=img_ctx_b64,
             coordenadaX=coord_x_value,
             coordenadaY=coord_y_value,
-            marca=getattr(reading, "brand", None),
-            model=getattr(reading, "model", None),
-            color=getattr(reading, "color", None),
-            tipusVehicle=getattr(reading, "vehicle_type", None),
-            pais=getattr(reading, "country_code", None),
+            marca=getattr(reading, "brand", None) or None,
+            model=getattr(reading, "model", None) or None,
+            color=getattr(reading, "color", None) or None,
+            tipusVehicle=getattr(reading, "vehicle_type", None) or None,
+            pais=getattr(reading, "country_code", None) or None,
         )
 
         logger.debug(
-            "[MOSSOS][DEBUG] Solicitud matriculaRequest construida para lectura %s",
-            getattr(reading, "id", None),
+            "[MOSSOS][DEBUG] Enviando matricula=%s codiLector=%s fecha=%s hora=%s",
+            plate,
+            camera.codigo_lector,
+            data_str,
+            hora_str,
         )
         return matricula_el
 
