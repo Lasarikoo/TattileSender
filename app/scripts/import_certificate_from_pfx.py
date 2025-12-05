@@ -193,6 +193,7 @@ def main() -> None:
             name=alias,
             municipality_id=municipality.id,
             path=public_cert_path,
+            client_cert_path=public_cert_path,
             public_cert_path=public_cert_path,
             key_path=priv_key_path,
             privpub_path=privpub_path,

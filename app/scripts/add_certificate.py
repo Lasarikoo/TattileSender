@@ -18,6 +18,7 @@ def main() -> None:
         certificate = Certificate(
             name=name,
             path=path,
+            client_cert_path=path if cert_type.upper() == "PEM" else None,
             type=cert_type,
             active=True,
         )

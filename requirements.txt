@@ -6,6 +6,8 @@ alembic>=1.12.0
 psycopg2-binary>=2.9.0
 python-dotenv>=1.0.0
 requests>=2.31.0
+# Cliente SOAP con WS-Security
+zeep>=4.2.1
 # Para formateo de XML (logs legibles)
 lxml>=4.9.0
 # BaseSettings proviene de Pydantic v1; fijamos versión 1.x para compatibilidad
