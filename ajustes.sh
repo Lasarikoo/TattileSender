@@ -4,34 +4,100 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$PROJECT_DIR/.venv/bin/activate"
 
-show_logo() {
-    clear
-    echo "========================================="
-    echo "   ____      _   _   _ _ _      _____    "
-    echo "  |  _ \\ ___| |_| |_(_) | |_   |___ /    "
-    echo "  | |_) / _ \\ __| __| | | __|    |_ \\    "
-    echo "  |  _ <  __/ |_| |_| | | |_    ___) |   "
-    echo "  |_| \\_\\___|\\__|\\__|_|_|\\__|  |____/    "
-    echo "                                         "
-    echo "         TattileSender - Ajustes         "
-    echo "========================================="
-    echo
-}
-
-pause_screen() {
-    read -rp "Pulsa ENTER para continuar..." _
-}
-
-handle_delete_menu() {
+show_add_menu() {
     while true; do
         clear
-        echo "=== Menú eliminar datos ==="
-        echo "[1] Eliminar cámara"
-        echo "[2] Eliminar municipio"
-        echo "[3] Eliminar certificado"
-        echo "[4] Eliminar endpoint"
-        echo "[5] Limpiar TODAS las lecturas"
-        echo "[0] Volver"
+        echo "Añadir datos"
+        echo "1) Añadir municipios"
+        echo "2) Añadir cámaras"
+        echo "3) Añadir endpoints"
+        echo "4) Añadir certificados"
+        echo "5) Descomprimir certificado PFX y asignar a municipio"
+        echo "6) Volver al menú principal"
+        read -rp "Seleccione una opción: " option
+        case $option in
+            1)
+                python -m app.scripts.add_municipality
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            2)
+                python -m app.scripts.add_camera
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            3)
+                python -m app.scripts.add_endpoint
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            4)
+                python -m app.scripts.add_certificate
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            5)
+                python -m app.scripts.import_certificate_from_pfx
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            6)
+                break
+                ;;
+            *)
+                echo "Opción no válida"
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+        esac
+    done
+}
+
+show_assign_menu() {
+    while true; do
+        clear
+        echo "Asignar relaciones"
+        echo "1) Asignar certificado a municipio"
+        echo "2) Asignar endpoint a municipio"
+        echo "3) Asignar certificado a cámara"
+        echo "4) Asignar endpoint a cámara"
+        echo "5) Volver al menú principal"
+        read -rp "Seleccione una opción: " option
+        case $option in
+            1)
+                python -m app.scripts.assign_municipality_certificate
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            2)
+                python -m app.scripts.assign_municipality_endpoint
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            3)
+                python -m app.scripts.assign_camera_certificate
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            4)
+                python -m app.scripts.assign_camera_endpoint
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            5)
+                break
+                ;;
+            *)
+                echo "Opción no válida"
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+        esac
+    done
+}
+
+show_delete_menu() {
+    while true; do
+        clear
+        echo "Eliminar datos"
+        echo "1) Eliminar cámara"
+        echo "2) Eliminar municipio"
+        echo "3) Eliminar certificado"
+        echo "4) Eliminar endpoint"
+        echo "5) Limpiar TODAS las lecturas"
+        echo "6) Limpiar TODA la cola de mensajes"
+        echo "7) Limpiar TODAS las imágenes"
+        echo "8) Limpieza total (lecturas + cola + imágenes)"
+        echo "0) Volver"
         read -rp "Seleccione una opción: " option
         case $option in
             1)
@@ -46,7 +112,7 @@ handle_delete_menu() {
                         python -m app.admin.cli delete-camera --serial-number "$cam_id"
                     fi
                 fi
-                pause_screen
+                read -rp "Pulsa ENTER para continuar..." _
                 ;;
             2)
                 read -rp "ID o nombre del municipio: " mun_id
@@ -60,7 +126,7 @@ handle_delete_menu() {
                         python -m app.admin.cli delete-municipality --name "$mun_id"
                     fi
                 fi
-                pause_screen
+                read -rp "Pulsa ENTER para continuar..." _
                 ;;
             3)
                 read -rp "ID, alias o nombre del certificado: " cert_id
@@ -79,7 +145,7 @@ handle_delete_menu() {
                         python -m app.admin.cli delete-certificate --alias "$cert_id" $force_flag
                     fi
                 fi
-                pause_screen
+                read -rp "Pulsa ENTER para continuar..." _
                 ;;
             4)
                 read -rp "ID o nombre del endpoint: " endpoint_id
@@ -98,7 +164,7 @@ handle_delete_menu() {
                         python -m app.admin.cli delete-endpoint --name "$endpoint_id" $force_flag
                     fi
                 fi
-                pause_screen
+                read -rp "Pulsa ENTER para continuar..." _
                 ;;
             5)
                 read -rp "Vas a eliminar TODAS las lecturas. ¿Seguro? [s/N]: " confirm
@@ -107,95 +173,112 @@ handle_delete_menu() {
                 else
                     echo "Operación cancelada."
                 fi
-                pause_screen
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            6)
+                read -rp "Vas a limpiar TODA la cola de mensajes. ¿Seguro? [s/N]: " confirm
+                if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
+                    python -m app.admin.cli wipe-queue
+                else
+                    echo "Operación cancelada."
+                fi
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            7)
+                read -rp "Vas a borrar TODAS las imágenes físicas. ¿Seguro? [s/N]: " confirm
+                if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
+                    python -m app.admin.cli wipe-images
+                else
+                    echo "Operación cancelada."
+                fi
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            8)
+                read -rp "Vas a borrar lecturas, cola e imágenes. ¿Seguro? [s/N]: " confirm
+                if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
+                    python -m app.admin.cli full-wipe
+                else
+                    echo "Operación cancelada."
+                fi
+                read -rp "Pulsa ENTER para continuar..." _
                 ;;
             0)
                 break
                 ;;
             *)
                 echo "Opción no válida"
-                pause_screen
+                read -rp "Pulsa ENTER para continuar..." _
                 ;;
         esac
     done
 }
 
-handle_pfx_import() {
-    CERTS_DIR=$(python - <<'PY'
-from app.config import settings
-print(settings.certs_dir)
-PY
-)
-
-    if [ -z "$CERTS_DIR" ]; then
-        CERTS_DIR="./certs"
-    fi
-
-    mapfile -t PFX_FILES < <(find "$CERTS_DIR" -maxdepth 1 -type f \( -iname "*.pfx" -o -iname "*.p12" \) | sort)
-
-    if [ ${#PFX_FILES[@]} -eq 0 ]; then
-        echo "[ERROR] No se han encontrado certificados PFX en $CERTS_DIR."
-        pause_screen
-        return
-    fi
-
-    echo "Certificados PFX encontrados en $CERTS_DIR:"
-    idx=1
-    for f in "${PFX_FILES[@]}"; do
-        echo "  $idx) $f"
-        idx=$((idx + 1))
+show_update_menu() {
+    while true; do
+        clear
+        echo "Modificar datos"
+        echo "1) Modificar municipios"
+        echo "2) Modificar cámaras"
+        echo "3) Modificar endpoints"
+        echo "4) Modificar certificados"
+        echo "5) Volver"
+        read -rp "Seleccione una opción: " option
+        case $option in
+            1)
+                python -m app.scripts.update_municipality
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            2)
+                python -m app.scripts.update_camera
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            3)
+                python -m app.scripts.update_endpoint
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            4)
+                python -m app.scripts.update_certificate
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+            5)
+                break
+                ;;
+            *)
+                echo "Opción no válida"
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+        esac
     done
-
-    read -rp "Selecciona un certificado por número: " selected
-    if ! [[ "$selected" =~ ^[0-9]+$ ]] || [ "$selected" -lt 1 ] || [ "$selected" -gt "${#PFX_FILES[@]}" ]; then
-        echo "Selección no válida."
-        pause_screen
-        return
-    fi
-
-    PFX_PATH="${PFX_FILES[$((selected - 1))]}"
-    read -rp "Alias interno del certificado: " PFX_ALIAS
-    read -s -rp "Introduce la contraseña del PFX: " PFX_PASS
-    echo
-
-    python -m app.scripts.import_certificate_from_pfx --pfx-path "$PFX_PATH" --alias "$PFX_ALIAS" --password "$PFX_PASS"
-    pause_screen
 }
 
 while true; do
-    show_logo
-    echo "1) Añadir cámaras"
-    echo "2) Añadir municipios"
-    echo "3) Añadir endpoints"
-    echo "4) Descomprimir certificado PFX y asignar a municipio"
-    echo "5) Eliminar datos"
+    clear
+    echo "TattileSender - Ajustes"
+    echo "1) Añadir datos"
+    echo "2) Asignar relaciones"
+    echo "3) Eliminar datos"
+    echo "4) Modificar datos"
     echo "0) Salir"
     read -rp "Seleccione una opción: " main_option
     case $main_option in
         1)
-            python -m app.scripts.add_camera
-            pause_screen
+            show_add_menu
             ;;
         2)
-            python -m app.scripts.add_municipality
-            pause_screen
+            show_assign_menu
             ;;
         3)
-            python -m app.scripts.add_endpoint
-            pause_screen
+            show_delete_menu
             ;;
         4)
-            handle_pfx_import
-            ;;
-        5)
-            handle_delete_menu
+            show_update_menu
             ;;
         0)
             exit 0
             ;;
         *)
             echo "Opción no válida"
-            pause_screen
+            read -rp "Pulsa ENTER para continuar..." _
             ;;
     esac
 

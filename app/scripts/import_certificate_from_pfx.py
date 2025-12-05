@@ -4,7 +4,6 @@ Uso: python -m app.scripts.import_certificate_from_pfx
 """
 from __future__ import annotations
 
-import argparse
 import os
 import re
 import shutil
@@ -141,19 +140,11 @@ def _choose_municipality(session: Session) -> Municipality | None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Importa un certificado PFX y lo asigna a un municipio.",
-    )
-    parser.add_argument("--pfx-path", dest="pfx_path", help="Ruta del fichero .pfx/.p12")
-    parser.add_argument("--alias", dest="alias", help="Alias interno del certificado")
-    parser.add_argument("--password", dest="password", help="Contraseña del .pfx")
-    args = parser.parse_args()
-
     print("[CERT IMPORT] Importar certificado PFX y asignarlo a un municipio")
 
-    pfx_path = (args.pfx_path or input("Ruta del fichero .pfx: ")).strip()
-    alias = (args.alias or input("Alias interno del certificado (ej. \"LaGranada\"): ")).strip()
-    pfx_password = args.password or getpass("Contraseña del .pfx: ")
+    pfx_path = input("Ruta del fichero .pfx: ").strip()
+    alias = input("Alias interno del certificado (ej. \"LaGranada\"): ").strip()
+    pfx_password = getpass("Contraseña del .pfx: ")
 
     if not os.path.isfile(pfx_path):
         print("[CERT IMPORT][ERROR] El fichero .pfx no existe o no es accesible.")
