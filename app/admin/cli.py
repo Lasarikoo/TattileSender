@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import traceback
 from typing import Optional
 
 from app.admin import cleanup
@@ -100,7 +101,7 @@ def _open_session():
     return session
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def _execute(argv: Optional[list[str]] = None) -> int:
     args = _parse_args(argv)
     session = None
     try:
@@ -162,9 +163,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                 delete_images=not args.keep_images,
                 delete_queue=not args.keep_queue,
             )
+            readings = summary.get("readings") or 0
+            messages = summary.get("messages") or 0
+            images = summary.get("images") or 0
             print(
                 "Se han eliminado {readings} lecturas, {messages} mensajes y "
-                "{images} imágenes.".format(**summary)
+                "{images} imágenes.".format(
+                    readings=readings, messages=messages, images=images
+                )
             )
         elif args.command == "wipe-queue":
             deleted = cleanup.wipe_all_queue(session)
@@ -176,20 +182,34 @@ def main(argv: Optional[list[str]] = None) -> int:
             )
         elif args.command == "full-wipe":
             summary = cleanup.full_wipe(session)
+            readings = summary.get("readings") or 0
+            messages = summary.get("messages") or 0
+            images = summary.get("images") or 0
             print(
                 "Limpieza total completada. Lecturas: {readings}, mensajes: {messages}, "
-                "imágenes: {images}.".format(**summary)
+                "imágenes: {images}.".format(
+                    readings=readings, messages=messages, images=images
+                )
             )
         else:
             print("Comando no reconocido")
             return 1
-    except Exception as exc:  # pragma: no cover - CLI defensivo
-        logger.error("Error durante la operación: %s", exc)
-        return 1
     finally:
         if session:
             session.close()
     return 0
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    try:
+        return _execute(argv)
+    except Exception as exc:  # pragma: no cover - CLI defensivo
+        logger.error(
+            "[CLI][ERROR] Error inesperado en CLI de administración: %s", exc
+        )
+        traceback.print_exc()
+        print("[CLI][ERROR] La operación de limpieza ha fallado. Revisa la traza anterior.")
+        return 1
 
 
 if __name__ == "__main__":

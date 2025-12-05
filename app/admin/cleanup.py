@@ -18,8 +18,14 @@ logger = logging.getLogger(__name__)
 def _log_and_count_images(readings: Iterable[AlprReading]) -> int:
     count = 0
     for reading in readings:
-        count += int(reading.image_ocr_path and os.path.isfile(reading.image_ocr_path))
-        count += int(reading.image_ctx_path and os.path.isfile(reading.image_ctx_path))
+        count += int(
+            bool(reading.image_ocr_path)
+            and os.path.isfile(reading.image_ocr_path)
+        )
+        count += int(
+            bool(reading.image_ctx_path)
+            and os.path.isfile(reading.image_ctx_path)
+        )
         delete_reading_images(reading)
         reading.image_ocr_path = None
         reading.image_ctx_path = None
@@ -136,8 +142,8 @@ def delete_camera(
         deleted_images,
     )
     return {
-        "readings": deleted_readings,
-        "messages": deleted_messages,
+        "readings": deleted_readings or 0,
+        "messages": deleted_messages or 0,
         "images": deleted_images,
         "camera": camera.serial_number,
     }
@@ -250,7 +256,7 @@ def delete_endpoint(session: Session, identifier: str, *, force: bool = False) -
 def wipe_all_queue(session: Session) -> int:
     """Borra todos los mensajes de la cola."""
 
-    deleted = session.query(MessageQueue).delete(synchronize_session=False)
+    deleted = session.query(MessageQueue).delete(synchronize_session=False) or 0
     session.commit()
     logger.info("Eliminados %s mensajes de la cola", deleted)
     return deleted
@@ -288,8 +294,8 @@ def wipe_all_readings(
         deleted_images,
     )
     return {
-        "readings": deleted_readings,
-        "messages": deleted_messages,
+        "readings": deleted_readings or 0,
+        "messages": deleted_messages or 0,
         "images": deleted_images,
     }
 
