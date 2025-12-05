@@ -86,8 +86,6 @@ class MossosZeepClient:
         if not reading.timestamp_utc:
             raise ValueError("La lectura no tiene timestamp para matriculaRequest")
 
-        matricula_type = self.client.get_type(f"{{{MATRICULA_NS}}}MatriculaType")
-
         data_str, hora_str = self._format_date_time(reading.timestamp_utc)
         plate = (reading.plate or "").strip().upper()[:10]
         img_ocr_b64 = load_image_base64(reading.image_ocr_path)
@@ -102,21 +100,30 @@ class MossosZeepClient:
             f"{camera.utm_y:.2f}" if camera.utm_y is not None else None
         )
 
-        matricula_el = matricula_type(
-            codiLector=camera.codigo_lector,
-            matricula=plate,
-            dataLectura=data_str,
-            horaLectura=hora_str,
-            imgMatricula=img_ocr_b64,
-            imgContext=img_ctx_b64,
-            coordenadaX=coord_x_value,
-            coordenadaY=coord_y_value,
-            marca=getattr(reading, "brand", None) or None,
-            model=getattr(reading, "model", None) or None,
-            color=getattr(reading, "color", None) or None,
-            tipusVehicle=getattr(reading, "vehicle_type", None) or None,
-            pais=getattr(reading, "country_code", None) or None,
-        )
+        payload = {
+            "codiLector": camera.codigo_lector,
+            "matricula": plate,
+            "dataLectura": data_str,
+            "horaLectura": hora_str,
+            "imgMatricula": img_ocr_b64,
+            "imgContext": img_ctx_b64,
+        }
+
+        if coord_x_value is not None:
+            payload["coordenadaX"] = coord_x_value
+        if coord_y_value is not None:
+            payload["coordenadaY"] = coord_y_value
+
+        for attr, key in [
+            ("brand", "marca"),
+            ("model", "model"),
+            ("color", "color"),
+            ("vehicle_type", "tipusVehicle"),
+            ("country_code", "pais"),
+        ]:
+            value = getattr(reading, attr, None)
+            if value is not None:
+                payload[key] = value
 
         logger.debug(
             "[MOSSOS][DEBUG] Enviando matricula=%s codiLector=%s fecha=%s hora=%s",
@@ -125,12 +132,12 @@ class MossosZeepClient:
             data_str,
             hora_str,
         )
-        return matricula_el
+        return payload
 
     def send_matricula(self, reading: AlprReading, camera: Camera) -> MossosSendResult:
-        request_el = self.build_matricula_request(reading, camera)
+        request_data = self.build_matricula_request(reading, camera)
         try:
-            response = self.service.matricula(request_el)
+            response = self.service.matricula(matriculaRequest=request_data)
             codi_retorn = getattr(response, "codiRetorn", None)
             success = codi_retorn in ("OK", "0000", "1")
             return MossosSendResult(
