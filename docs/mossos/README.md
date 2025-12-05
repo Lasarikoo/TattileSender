@@ -13,17 +13,16 @@ Este documento resume cómo preparar certificados y cómo funciona el cliente SO
 4. Tras un `codiRetorn` satisfactorio se eliminan imágenes y registros; en caso
    de fallo se aplican reintentos o se marca como `DEAD` según la causa.
 
-## Selección de endpoint y certificado
+## Selección de certificado y endpoint
 
-- **Endpoint efectivo**: el sender usa primero el endpoint de la cámara
-  (`camera.endpoint`). Si no existe, usa el endpoint del municipio. Si tampoco
-  está configurado, utiliza el endpoint global indicado en
-  `settings.MOSSOS_ENDPOINT_URL`. Si ninguno está disponible el mensaje se marca
-  como `DEAD`.
-- **Certificado WS-Security**: se usa el certificado asociado al municipio
-  (`municipality.certificate`). El cliente toma las rutas `client_cert_path`/`path`
-  y `key_path` almacenadas en la base de datos (cargadas a partir del `.pfx` del
-  municipio) para firmar la petición.
+- **Certificado WS-Security**: se firma siempre con el certificado asociado al
+  municipio de la cámara (`municipality.certificate`). Del certificado se usan
+  las rutas `client_cert_path`/`path` y `key_path` generadas a partir del `.pfx`
+  almacenado en base de datos.
+- **Endpoint efectivo**: el sender resuelve primero `camera.endpoint`; si no
+  existe usa el endpoint del municipio. Si tampoco está configurado, utiliza el
+  endpoint global `settings.MOSSOS_ENDPOINT_URL`. Si ninguno está disponible el
+  mensaje se marca como `DEAD` sin intentar el envío.
 
 ## Construcción de la petición `matricula`
 
@@ -39,14 +38,27 @@ Este documento resume cómo preparar certificados y cómo funciona el cliente SO
 - Campos opcionales si existen datos en la lectura o cámara: `coordenadaX`,
   `coordenadaY`, `marca`, `model`, `color`, `tipusVehicle`, `pais`.
 
-## WS-Security con Zeep
+## WS-Security
 
-- El cliente SOAP (`app/sender/mossos_client.py`) usa `zeep.wsse.signature.Signature`
-  para firmar el cuerpo del mensaje con el certificado del municipio y añadir
-  `Timestamp` y `BinarySecurityToken`.
-- Se crea el servicio con el binding `{http://dgp.gencat.cat/matricules}MatriculesSoap11`
-  apuntando al endpoint resuelto. Los logs muestran explícitamente el endpoint
-  usado al habilitar la firma.
+- Las peticiones SOAP al servicio MATR-WS se firman con X.509 utilizando el
+  certificado del municipio obtenido desde la cámara.
+- El cliente Zeep usa la clase `SignOnlySignature`, que hereda de
+  `BinarySignature`, para firmar la petición. Esta variante mantiene la firma
+  X.509 pero desactiva la verificación de la respuesta porque Mossos no envía
+  cabecera `wsse:Security` en el reply.
+- Código abreviado:
+
+  ```python
+  from zeep.wsse.signature import BinarySignature
+
+  class SignOnlySignature(BinarySignature):
+      def verify(self, envelope):
+          return envelope
+  ```
+
+- El servicio se crea con el binding `{http://dgp.gencat.cat/matricules}MatriculesSoap11`
+  apuntando al endpoint resuelto, y los logs muestran el endpoint usado al
+  habilitar la firma.
 
 ## Política de reintentos y borrado
 

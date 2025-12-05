@@ -91,7 +91,11 @@ def process_tattile_payload(xml_str: str, session: Session) -> None:
 
         session.commit()
 
-        logger.info("Lectura recibida %s de %s", reading.plate, device_sn)
+        logger.info(
+            "Lectura recibida %s de %s",
+            (parsed.get("plate") or "").strip().upper(),
+            device_sn,
+        )
     except Exception as exc:
         session.rollback()
         logger.error("[INGEST][ERROR] Error guardando lectura: %s", exc)
