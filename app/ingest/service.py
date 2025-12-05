@@ -1,7 +1,6 @@
 """Servicio de ingesta de lecturas Tattile (Fase 1)."""
 from __future__ import annotations
 
-import logging
 import socket
 from typing import Callable
 
@@ -9,11 +8,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 from app.config import settings
+from app.logger import logger
 from app.ingest.image_storage import save_reading_image_base64
 from app.ingest.parser import TattileParseError, parse_tattile_xml
 from app.models import AlprReading, Camera, MessageQueue, SessionLocal
-
-logger = logging.getLogger(__name__)
 
 
 def process_tattile_payload(xml_str: str, session: Session) -> None:
@@ -30,7 +28,10 @@ def process_tattile_payload(xml_str: str, session: Session) -> None:
 
         camera = session.query(Camera).filter(Camera.serial_number == device_sn).first()
         if not camera:
-            print(f"[INGEST] Cámara no registrada para DEVICE_SN={device_sn}")
+            logger.warning(
+                "[INGEST][ADVERTENCIA] Cámara no registrada: device_sn=%s. Lectura descartada.",
+                device_sn,
+            )
             session.rollback()
             return
 
@@ -90,13 +91,18 @@ def process_tattile_payload(xml_str: str, session: Session) -> None:
 
         session.commit()
 
-        print(
-            f"[INGEST] Lectura guardada plate={reading.plate} "
-            f"camera_id={reading.camera_id} reading_id={reading.id} msg_id={message.id}"
+        municipality = camera.municipality.name if camera and camera.municipality else "?"
+        logger.info(
+            "[INGEST] Lectura recibida: matrícula=%s, cámara=%s, municipio=%s, id_lectura=%s, id_mensaje=%s",
+            reading.plate,
+            device_sn,
+            municipality,
+            reading.id,
+            message.id,
         )
     except Exception as exc:
         session.rollback()
-        print(f"[INGEST][ERROR] {exc}")
+        logger.error("[INGEST][ERROR] Error guardando lectura: %s", exc)
         raise
 
 
@@ -114,15 +120,15 @@ def _serve_connection(conn: socket.socket, addr: tuple, session_factory: Callabl
         return
 
     xml_str = b"".join(data_chunks).decode("utf-8", errors="replace")
-    print(f"[INGEST] XML recibido desde {addr}")
+    logger.info("[INGEST] XML recibido desde %s", addr)
     session = session_factory()
     try:
         process_tattile_payload(xml_str, session)
     except TattileParseError as exc:
-        logger.error("Error de parseo desde %s: %s", addr, exc)
+        logger.error("[INGEST][ERROR] No se ha podido parsear el XML desde %s: %s", addr, exc)
         session.rollback()
     except Exception as exc:  # pragma: no cover - logging defensivo
-        logger.exception("Error procesando payload desde %s", addr)
+        logger.exception("[INGEST][ERROR] Error procesando payload desde %s", addr)
         session.rollback()
     finally:
         session.close()
@@ -132,15 +138,13 @@ def run_ingest_service() -> None:
     """Punto de entrada del servicio de ingesta síncrono."""
 
     listen_port = getattr(settings, "TRANSIT_PORT", None) or settings.transit_port
-    logger.info(f"[INGEST] Escuchando en 0.0.0.0:{listen_port}")
+    logger.info("[INGEST] Servicio de ingesta iniciado en 0.0.0.0:%s", listen_port)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind(("0.0.0.0", listen_port))
         server_socket.listen()
-        logger.info("Ingest Service escuchando en 0.0.0.0:%s", listen_port)
-
         while True:
             conn, addr = server_socket.accept()
-            logger.info("Conexión entrante desde %s", addr)
+            logger.info("[INGEST] Conexión entrante desde %s", addr)
             _serve_connection(conn, addr, SessionLocal)
