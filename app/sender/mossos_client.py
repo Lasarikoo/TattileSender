@@ -74,11 +74,15 @@ class MossosClient:
         return ts.strftime("%Y-%m-%d"), ts.strftime("%H:%M:%S")
 
     def _load_image_b64(self, path: Optional[str], label: str) -> str:
-        full_path = resolve_image_path(path)
-        if not full_path:
+        if not path:
             raise FileNotFoundError(f"Ruta de imagen no disponible para {label}")
-        if not os.path.exists(full_path):
-            raise FileNotFoundError(f"No se encontró el fichero de imagen {label}: {full_path}")
+
+        full_path = resolve_image_path(path)
+        if not full_path.is_file():
+            raise FileNotFoundError(
+                f"{label}: fichero no encontrado en {full_path}"
+            )
+
         with open(full_path, "rb") as f:
             return base64.b64encode(f.read()).decode("ascii")
 

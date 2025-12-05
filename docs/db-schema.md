@@ -55,7 +55,7 @@
 - `ocr_score` (numérico), `country_code` (texto), `country` (texto).
 - `bbox_min_x`, `bbox_min_y`, `bbox_max_x`, `bbox_max_y`, `char_height` (numéricos).
 - `has_image_ocr` (booleano), `has_image_ctx` (booleano): indicadores de si la lectura llegó con imágenes válidas.
-- `image_ocr_path` / `image_ctx_path` (texto, opcional): rutas (relativas a `IMAGES_DIR` o absolutas) donde se almacenaron las imágenes en disco.
+- `image_ocr_path` / `image_ctx_path` (texto, opcional): rutas relativas respecto a `IMAGES_BASE_DIR` donde se almacenaron las imágenes en disco.
 - `raw_xml` (texto largo o XML).
 - `camera_id` (uuid, fk): referencia a `cameras` para conocer municipio y
   certificados asociados.

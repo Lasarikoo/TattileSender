@@ -39,10 +39,16 @@ class Settings(BaseSettings):
     sender_default_backoff_ms: int = Field(1000, env="SENDER_DEFAULT_BACKOFF_MS")
 
     images_dir: str = Field(
-        "data/images",
-        env="IMAGES_DIR",
+        "/data/images",
+        env=("IMAGES_BASE_DIR", "IMAGES_DIR"),
         description="Directorio base para almacenar imágenes ALPR",
     )
+
+    @property
+    def images_base_dir(self) -> str:
+        """Alias explícito para el directorio base de imágenes."""
+
+        return self.images_dir
 
     @property
     def CERTS_DIR(self) -> str:
