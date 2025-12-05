@@ -261,11 +261,13 @@ def _execute(argv: Optional[list[str]] = None) -> int:
                 return 1
 
             print(
-                f"[CERT] PFX extraído para municipio \"{result.municipality.name}\" "
+                f"[CERT] PFX extraído y verificado para municipio \"{result.municipality.name}\" "
                 f"(id={result.municipality.id})."
             )
-            print(f"[CERT] key.pem:      {result.key_path}")
-            print(f"[CERT] privpub.pem:  {result.privpub_path}")
+            print(f"[CERT] key.pem:    {result.key_path}")
+            print(f"[CERT] client.pem: {result.client_path}")
+            if result.privpub_path:
+                print(f"[CERT] privpub.pem (bundle extra): {result.privpub_path}")
             print(f"[CERT] Certificate.id: {result.certificate.id}")
         else:
             print("Comando no reconocido")
