@@ -142,5 +142,5 @@ def run_ingest_service() -> None:
         server_socket.listen()
         while True:
             conn, addr = server_socket.accept()
-            logger.info("[INGEST] Conexión entrante desde %s", addr)
+            logger.debug("[INGEST] Conexión entrante desde %s", addr)
             _serve_connection(conn, addr, SessionLocal)

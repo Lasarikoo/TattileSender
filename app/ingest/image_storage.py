@@ -54,7 +54,7 @@ def save_reading_image_base64(
         )
         return None
 
-    logger.info(
+    logger.debug(
         "[IMAGEN] Imagen %s guardada para lectura de %s: %s",
         kind.upper(),
         device_sn,
