@@ -178,3 +178,20 @@ python -m app.admin.cli delete-camera --serial-number 2001008851
 - El sender **solo envía** lecturas con imagen OCR válida y existente en disco. Si falta o no se puede leer, el mensaje pasa a `DEAD` con el motivo `NO_IMAGE_*` y no se reintenta. Si hay imagen de contexto declarada pero no accesible también se marca como `DEAD`.
 - Tras recibir `codiRetorn=1` de Mossos se eliminan la entrada en `messages_queue`, la lectura en `alpr_readings` y los ficheros de imagen asociados.
 - En despliegues productivos usa un `IMAGES_DIR` absoluto (p. ej. `/var/lib/tattilesender/images`) y garantiza permisos de escritura del usuario que ejecuta ingest y sender.
+
+## Logging
+- Formato de consola: "%(asctime)s [%(levelname)s] %(message)s". El nivel por defecto es `INFO`; usa `LOG_LEVEL=DEBUG` para mayor detalle.
+- Prefijos para cada componente:
+  - `[INGEST]` servicio de ingesta de XML.
+  - `[IMAGEN]` operaciones de decodificación y guardado de imágenes.
+  - `[SENDER]` worker de cola y envío.
+  - `[MOSSOS]` cliente SOAP hacia el endpoint de Mossos.
+  - `[CERT]` validación de certificados y claves.
+  - `[CLEANUP]` eliminación de imágenes tras el envío.
+- Mensajes de referencia:
+  - `[INGEST] Lectura recibida: matrícula=1234ABC, cámara=TAT001, municipio=Gava, id_lectura=10, id_mensaje=25`
+  - `[IMAGEN] Imagen OCR guardada para lectura de TAT001: /var/lib/.../ocr.jpg`
+  - `[SENDER] Envío correcto de lectura 10 (msg_id=25). Código respuesta=1`
+  - `[IMAGEN][ERROR] Error decodificando imagen ocr para cámara TAT001, matrícula=1234ABC: <detalle>`
+  - `[CERT][ERROR] Certificado no encontrado en /etc/tattilesender/certs/camara.pem`
+  - `[SENDER][DEAD] Mensaje 25 agotó reintentos y se marca DEAD: NO_IMAGE_FILE`
