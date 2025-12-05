@@ -23,14 +23,12 @@ BINDING_QNAME = "{http://dgp.gencat.cat/matricules}MatriculesSoap11"
 
 class SignOnlySignature(BinarySignature):
     """
-    Variante de BinarySignature que sólo firma peticiones y omite la verificación.
-
-    El servicio MATR-WS no firma las respuestas, por lo que la verificación
-    estándar de Zeep fallaría al no encontrar cabecera ``wsse:Security``.
-    Sobrescribimos ``verify`` para que no haga nada.
+    Variante de BinarySignature que sólo firma las peticiones
+    y NO intenta verificar la respuesta del servidor.
     """
 
     def verify(self, envelope):
+        # No hacemos verificación de respuesta, simplemente devolvemos el envelope
         return envelope
 
 
@@ -81,7 +79,7 @@ class MossosZeepClient:
         self.client = Client(
             wsdl=wsdl_url,
             transport=transport,
-            wsse=SignOnlySignature(keyfile=key_path, certfile=cert_path),
+            wsse=SignOnlySignature(key_file=key_path, cert_file=cert_path),
             settings=Settings(strict=True, xml_huge_tree=True),
         )
         self.service = self.client.create_service(BINDING_QNAME, endpoint_url)
