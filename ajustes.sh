@@ -4,282 +4,261 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$PROJECT_DIR/.venv/bin/activate"
 
-show_add_menu() {
-    while true; do
-        clear
-        echo "Añadir datos"
-        echo "1) Añadir municipios"
-        echo "2) Añadir cámaras"
-        echo "3) Añadir endpoints"
-        echo "4) Añadir certificados"
-        echo "5) Descomprimir certificado PFX y asignar a municipio"
-        echo "6) Volver al menú principal"
-        read -rp "Seleccione una opción: " option
-        case $option in
-            1)
-                python -m app.scripts.add_municipality
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            2)
-                python -m app.scripts.add_camera
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            3)
-                python -m app.scripts.add_endpoint
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            4)
-                python -m app.scripts.add_certificate
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            5)
-                python -m app.scripts.import_certificate_from_pfx
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            6)
-                break
-                ;;
-            *)
-                echo "Opción no válida"
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-        esac
-    done
+show_logo() {
+    clear
+    echo "=============================================="
+    echo " _________        _     _    _   __          ______                        __                "
+    echo "|  _   _  |      / |_  / |_ (_) [  |       .' ____ \\                      |  ]               "
+    echo "|_/ | | \\_|,--. `| |-'`| |-'__   | | .---. | (___ \\_| .---.  _ .--.   .--.| | .---.  _ .--.  "
+    echo "    | |   `'_\\ : | |   | | [  |  | |/ /__\\ _.____`. / /__\\[ `.-. |/ /'`\\' |/ /__\\[ `/'`\\] "
+    echo "   _| |_  // | |,| |,  | |, | |  | || \\__.,| \\____) || \\__., | | | || \\__/  || \\__., | |     "
+    echo "  |_____| \\-;__/\\__/  \\__/[___][___]'.__.' \\______.' '.__.'[___||__]'.__.;__]'.__.'[___]    "
+    echo
+    echo "          TattileSender - Ajustes             "
+    echo "=============================================="
+    echo
 }
 
-show_assign_menu() {
-    while true; do
-        clear
-        echo "Asignar relaciones"
-        echo "1) Asignar certificado a municipio"
-        echo "2) Asignar endpoint a municipio"
-        echo "3) Asignar certificado a cámara"
-        echo "4) Asignar endpoint a cámara"
-        echo "5) Volver al menú principal"
-        read -rp "Seleccione una opción: " option
-        case $option in
-            1)
-                python -m app.scripts.assign_municipality_certificate
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            2)
-                python -m app.scripts.assign_municipality_endpoint
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            3)
-                python -m app.scripts.assign_camera_certificate
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            4)
-                python -m app.scripts.assign_camera_endpoint
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            5)
-                break
-                ;;
-            *)
-                echo "Opción no válida"
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-        esac
-    done
+anadir_camaras() {
+    python -m app.scripts.add_camera
+    read -p "Pulsa ENTER para continuar..." _
 }
 
-show_delete_menu() {
+anadir_municipios() {
+    python -m app.scripts.add_municipality
+    read -p "Pulsa ENTER para continuar..." _
+}
+
+anadir_endpoints() {
+    python -m app.scripts.add_endpoint
+    read -p "Pulsa ENTER para continuar..." _
+}
+
+descomprimir_certificado_pfx() {
+    CERTS_DIR=$(python -c "from app.config import settings; print(settings.certs_dir)" 2>/dev/null)
+    if [ -z "$CERTS_DIR" ]; then
+        CERTS_DIR="./certs"
+    fi
+
+    mapfile -t PFX_FILES < <(find "$CERTS_DIR" -maxdepth 1 -type f \( -iname "*.pfx" -o -iname "*.p12" \) | sort)
+
+    if [ ${#PFX_FILES[@]} -eq 0 ]; then
+        echo "No se han encontrado certificados PFX en $CERTS_DIR."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    echo "Certificados PFX encontrados en $CERTS_DIR:"
+    idx=1
+    for f in "${PFX_FILES[@]}"; do
+        echo "  $idx) $f"
+        idx=$((idx + 1))
+    done
+
+    read -p "Selecciona un certificado por número: " selected
+
+    if ! [[ "$selected" =~ ^[0-9]+$ ]] || [ "$selected" -lt 1 ] || [ "$selected" -gt "${#PFX_FILES[@]}" ]; then
+        echo "Selección no válida."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    PFX_PATH="${PFX_FILES[$((selected - 1))]}"
+
+    read -s -p "Introduce la contraseña del PFX: " PFX_PASS
+    echo
+
+    python -m app.admin.cli extract-cert --pfx-path "$PFX_PATH" --password "$PFX_PASS"
+    echo "Operación de certificado completada (revisa posibles errores en consola)."
+    read -p "Pulsa ENTER para continuar..." _
+}
+
+eliminar_camara_interactivo() {
+    clear
+    echo "=== Eliminar cámara ==="
+    echo
+    echo "Listado de cámaras:"
+    python -m app.admin.cli list-cameras
+    echo
+    read -p "Introduce el ID de la cámara a eliminar: " CAM_ID
+    if [ -z "$CAM_ID" ]; then
+        echo "ID no válido."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    read -p "Vas a eliminar la cámara con ID $CAM_ID. ¿Seguro? [s/N]: " CONFIRM
+    if [ "$CONFIRM" != "s" ] && [ "$CONFIRM" != "S" ]; then
+        echo "Operación cancelada."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    python -m app.admin.cli delete-camera --id "$CAM_ID"
+    read -p "Pulsa ENTER para continuar..." _
+}
+
+eliminar_municipio_interactivo() {
+    clear
+    echo "=== Eliminar municipio ==="
+    echo
+    echo "Listado de municipios:"
+    python -m app.admin.cli list-municipalities
+    echo
+    read -p "Introduce el ID del municipio a eliminar: " MUNI_ID
+    if [ -z "$MUNI_ID" ]; then
+        echo "ID no válido."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    read -p "Vas a eliminar el municipio con ID $MUNI_ID (posible borrado en cascada). ¿Seguro? [s/N]: " CONFIRM
+    if [ "$CONFIRM" != "s" ] && [ "$CONFIRM" != "S" ]; then
+        echo "Operación cancelada."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    python -m app.admin.cli delete-municipality --id "$MUNI_ID"
+    read -p "Pulsa ENTER para continuar..." _
+}
+
+eliminar_certificado_interactivo() {
+    clear
+    echo "=== Eliminar certificado ==="
+    echo
+    echo "Listado de certificados:"
+    python -m app.admin.cli list-certificates
+    echo
+    read -p "Introduce el ID del certificado a eliminar: " CERT_ID
+    if [ -z "$CERT_ID" ]; then
+        echo "ID no válido."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    read -p "Vas a eliminar el certificado con ID $CERT_ID. ¿Seguro? [s/N]: " CONFIRM
+    if [ "$CONFIRM" != "s" ] && [ "$CONFIRM" != "S" ]; then
+        echo "Operación cancelada."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    python -m app.admin.cli delete-certificate --id "$CERT_ID"
+    read -p "Pulsa ENTER para continuar..." _
+}
+
+eliminar_endpoint_interactivo() {
+    clear
+    echo "=== Eliminar endpoint ==="
+    echo
+    echo "Listado de endpoints:"
+    python -m app.admin.cli list-endpoints
+    echo
+    read -p "Introduce el ID del endpoint a eliminar: " ENDPOINT_ID
+    if [ -z "$ENDPOINT_ID" ]; then
+        echo "ID no válido."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    read -p "Vas a eliminar el endpoint con ID $ENDPOINT_ID. ¿Seguro? [s/N]: " CONFIRM
+    if [ "$CONFIRM" != "s" ] && [ "$CONFIRM" != "S" ]; then
+        echo "Operación cancelada."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    python -m app.admin.cli delete-endpoint --id "$ENDPOINT_ID"
+    read -p "Pulsa ENTER para continuar..." _
+}
+
+limpiar_lecturas_interactivo() {
+    clear
+    echo "=== Limpiar TODAS las lecturas ==="
+    read -p "Vas a eliminar TODAS las lecturas. ¿Seguro? [s/N]: " CONFIRM
+    if [ "$CONFIRM" != "s" ] && [ "$CONFIRM" != "S" ]; then
+        echo "Operación cancelada."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    python -m app.admin.cli wipe-readings
+    read -p "Pulsa ENTER para continuar..." _
+}
+
+menu_eliminar_datos() {
     while true; do
         clear
-        echo "Eliminar datos"
+        echo "====== Eliminar datos ======"
         echo "1) Eliminar cámara"
         echo "2) Eliminar municipio"
         echo "3) Eliminar certificado"
         echo "4) Eliminar endpoint"
         echo "5) Limpiar TODAS las lecturas"
-        echo "6) Limpiar TODA la cola de mensajes"
-        echo "7) Limpiar TODAS las imágenes"
-        echo "8) Limpieza total (lecturas + cola + imágenes)"
         echo "0) Volver"
-        read -rp "Seleccione una opción: " option
-        case $option in
+        echo
+        read -p "Seleccione una opción: " SUBOPCION
+        case "$SUBOPCION" in
             1)
-                read -rp "ID o número de serie de la cámara: " cam_id
-                read -rp "Vas a eliminar la cámara y sus datos asociados. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" != "s" && "$confirm" != "S" ]]; then
-                    echo "Operación cancelada."
-                else
-                    if [[ $cam_id =~ ^[0-9]+$ ]]; then
-                        python -m app.admin.cli delete-camera --id "$cam_id"
-                    else
-                        python -m app.admin.cli delete-camera --serial-number "$cam_id"
-                    fi
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
+                eliminar_camara_interactivo
                 ;;
             2)
-                read -rp "ID o nombre del municipio: " mun_id
-                read -rp "Se borrará el municipio y datos asociados. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" != "s" && "$confirm" != "S" ]]; then
-                    echo "Operación cancelada."
-                else
-                    if [[ $mun_id =~ ^[0-9]+$ ]]; then
-                        python -m app.admin.cli delete-municipality --id "$mun_id"
-                    else
-                        python -m app.admin.cli delete-municipality --name "$mun_id"
-                    fi
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
+                eliminar_municipio_interactivo
                 ;;
             3)
-                read -rp "ID, alias o nombre del certificado: " cert_id
-                read -rp "¿Forzar borrado si está en uso? [s/N]: " force_cert
-                read -rp "Vas a borrar un certificado. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" != "s" && "$confirm" != "S" ]]; then
-                    echo "Operación cancelada."
-                else
-                    force_flag=""
-                    if [[ "$force_cert" == "s" || "$force_cert" == "S" ]]; then
-                        force_flag="--force"
-                    fi
-                    if [[ $cert_id =~ ^[0-9]+$ ]]; then
-                        python -m app.admin.cli delete-certificate --id "$cert_id" $force_flag
-                    else
-                        python -m app.admin.cli delete-certificate --alias "$cert_id" $force_flag
-                    fi
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
+                eliminar_certificado_interactivo
                 ;;
             4)
-                read -rp "ID o nombre del endpoint: " endpoint_id
-                read -rp "¿Forzar borrado si está en uso? [s/N]: " force_ep
-                read -rp "Vas a borrar un endpoint. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" != "s" && "$confirm" != "S" ]]; then
-                    echo "Operación cancelada."
-                else
-                    force_flag=""
-                    if [[ "$force_ep" == "s" || "$force_ep" == "S" ]]; then
-                        force_flag="--force"
-                    fi
-                    if [[ $endpoint_id =~ ^[0-9]+$ ]]; then
-                        python -m app.admin.cli delete-endpoint --id "$endpoint_id" $force_flag
-                    else
-                        python -m app.admin.cli delete-endpoint --name "$endpoint_id" $force_flag
-                    fi
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
+                eliminar_endpoint_interactivo
                 ;;
             5)
-                read -rp "Vas a eliminar TODAS las lecturas. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
-                    python -m app.admin.cli wipe-readings
-                else
-                    echo "Operación cancelada."
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            6)
-                read -rp "Vas a limpiar TODA la cola de mensajes. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
-                    python -m app.admin.cli wipe-queue
-                else
-                    echo "Operación cancelada."
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            7)
-                read -rp "Vas a borrar TODAS las imágenes físicas. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
-                    python -m app.admin.cli wipe-images
-                else
-                    echo "Operación cancelada."
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            8)
-                read -rp "Vas a borrar lecturas, cola e imágenes. ¿Seguro? [s/N]: " confirm
-                if [[ "$confirm" == "s" || "$confirm" == "S" ]]; then
-                    python -m app.admin.cli full-wipe
-                else
-                    echo "Operación cancelada."
-                fi
-                read -rp "Pulsa ENTER para continuar..." _
+                limpiar_lecturas_interactivo
                 ;;
             0)
                 break
                 ;;
             *)
-                echo "Opción no válida"
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-        esac
-    done
-}
-
-show_update_menu() {
-    while true; do
-        clear
-        echo "Modificar datos"
-        echo "1) Modificar municipios"
-        echo "2) Modificar cámaras"
-        echo "3) Modificar endpoints"
-        echo "4) Modificar certificados"
-        echo "5) Volver"
-        read -rp "Seleccione una opción: " option
-        case $option in
-            1)
-                python -m app.scripts.update_municipality
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            2)
-                python -m app.scripts.update_camera
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            3)
-                python -m app.scripts.update_endpoint
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            4)
-                python -m app.scripts.update_certificate
-                read -rp "Pulsa ENTER para continuar..." _
-                ;;
-            5)
-                break
-                ;;
-            *)
-                echo "Opción no válida"
-                read -rp "Pulsa ENTER para continuar..." _
+                echo "Opción no válida."
+                read -p "Pulsa ENTER para continuar..." _
                 ;;
         esac
     done
 }
 
 while true; do
-    clear
-    echo "TattileSender - Ajustes"
-    echo "1) Añadir datos"
-    echo "2) Asignar relaciones"
-    echo "3) Eliminar datos"
-    echo "4) Modificar datos"
+    show_logo
+    echo "1) Añadir cámaras"
+    echo "2) Añadir municipios"
+    echo "3) Añadir endpoints"
+    echo "4) Descomprimir certificado PFX y asignar a municipio"
+    echo "5) Eliminar datos"
     echo "0) Salir"
-    read -rp "Seleccione una opción: " main_option
-    case $main_option in
+    echo
+    read -p "Seleccione una opción: " OPCION
+    case "$OPCION" in
         1)
-            show_add_menu
+            anadir_camaras
             ;;
         2)
-            show_assign_menu
+            anadir_municipios
             ;;
         3)
-            show_delete_menu
+            anadir_endpoints
             ;;
         4)
-            show_update_menu
+            descomprimir_certificado_pfx
+            ;;
+        5)
+            menu_eliminar_datos
             ;;
         0)
+            echo "Saliendo..."
             exit 0
             ;;
         *)
-            echo "Opción no válida"
-            read -rp "Pulsa ENTER para continuar..." _
+            echo "Opción no válida."
+            read -p "Pulsa ENTER para continuar..." _
             ;;
     esac
-
 done
