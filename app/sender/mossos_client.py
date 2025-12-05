@@ -17,6 +17,7 @@ from xml.etree import ElementTree as ET
 
 import requests
 from lxml import etree as lxml_etree
+from sqlalchemy.orm import Session
 
 from app.logger import logger
 from app.models import AlprReading, Camera, Municipality
@@ -36,13 +37,58 @@ class MossosResult:
     raw_response: Optional[str]
 
 
+@dataclass
+class CertPair:
+    cert_path: str
+    key_path: str
+
+
+def resolve_cert_pair_for_municipality(
+    session: Session, municipality_id: int
+) -> CertPair:
+    municipality = session.get(Municipality, municipality_id)
+    if not municipality:
+        raise RuntimeError(f"Municipio no encontrado (id={municipality_id})")
+
+    certificate = municipality.certificate
+    if not certificate:
+        raise RuntimeError(
+            f"Municipio {municipality.name} sin certificado configurado"
+        )
+
+    if (
+        certificate.type != "PEM"
+        or not certificate.path
+        or not certificate.key_path
+    ):
+        raise RuntimeError(
+            f"Certificado mal configurado para municipio {municipality.name}: "
+            f"type={certificate.type}, path={certificate.path}, key_path={certificate.key_path}. "
+            "Debes descomprimir el PFX y asignar los PEM desde ajustes.sh."
+        )
+
+    cert_path = certificate.path
+    key_path = certificate.key_path
+
+    if not os.path.isfile(cert_path):
+        raise RuntimeError(
+            f"Certificado PEM no encontrado en disco para municipio {municipality.name}: {cert_path}"
+        )
+    if not os.path.isfile(key_path):
+        raise RuntimeError(
+            f"Clave privada no encontrada en disco para municipio {municipality.name}: {key_path}"
+        )
+
+    return CertPair(cert_path=cert_path, key_path=key_path)
+
+
 class MossosClient:
     """Cliente ligero para el servicio SOAP de Mossos."""
 
     def __init__(
         self,
         endpoint_url: str,
-        cert_full_path: str | tuple[str, str | None],
+        cert_full_path: str | tuple[str, str | None] | None = None,
         cert_password: Optional[str] = None,
         timeout: float = 5.0,
         verify: bool = True,
@@ -55,19 +101,8 @@ class MossosClient:
         self._log_init()
 
     def _log_init(self) -> None:
-        cert_path = self.cert_full_path
-        cert_display = cert_path
-        key_display = None
-        if isinstance(cert_path, tuple):
-            cert_display, key_display = cert_path
         logger.info("[MOSSOS] Usando endpoint: %s", self.endpoint_url)
-        logger.info("[MOSSOS] Usando certificado=%s", cert_display)
-        logger.info("[CERT] Usando key=%s", key_display or "<no-key>")
         logger.debug("[MOSSOS][DEBUG] Verificación SSL=%s Timeout=%s", self.verify, self.timeout)
-        if cert_display:
-            logger.debug("[CERT][DEBUG] Certificado existe: %s", os.path.exists(cert_display))
-        if key_display:
-            logger.debug("[CERT][DEBUG] Key existe: %s", os.path.exists(key_display))
 
     def _format_date_time(self, timestamp: datetime) -> tuple[str, str]:
         ts = timestamp.astimezone(timezone.utc) if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc)
@@ -153,7 +188,12 @@ class MossosClient:
             return xml_bytes.decode("utf-8", errors="replace")
 
     def send_matricula(
-        self, *, reading: AlprReading, camera: Camera, municipality: Municipality
+        self,
+        *,
+        reading: AlprReading,
+        camera: Camera,
+        municipality: Municipality,
+        session: Session,
     ) -> MossosResult:
         logger.info(
             "[MOSSOS] Generando SOAP para lectura %s, matrícula=%s",
@@ -184,6 +224,14 @@ class MossosClient:
             )
             return MossosResult(success=False, code=None, error_message=str(exc), raw_response=None)
 
+        cert_pair = resolve_cert_pair_for_municipality(session, municipality.id)
+
+        logger.info(
+            "[CERT] Usando certificado PEM=%s key=%s",
+            cert_pair.cert_path,
+            cert_pair.key_path,
+        )
+
         headers = {
             "Content-Type": "text/xml; charset=utf-8",
             "SOAPAction": "matricula",
@@ -196,7 +244,7 @@ class MossosClient:
                 data=xml_payload,
                 headers=headers,
                 timeout=self.timeout,
-                cert=self.cert_full_path,
+                cert=(cert_pair.cert_path, cert_pair.key_path),
                 verify=self.verify,
             )
             elapsed_ms = int((time.monotonic() - send_started) * 1000)
