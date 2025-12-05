@@ -17,7 +17,8 @@ class ExtractResult:
     municipality: Municipality
     certificate: Certificate
     key_path: str
-    privpub_path: str
+    client_path: str
+    privpub_path: str | None
 
 
 def _slugify(value: str) -> str:
@@ -70,7 +71,45 @@ def _extract_key(pkcs12_cmd: list[str], pfx_path: str, password: str, output_dir
     return key_path
 
 
-def _extract_privpub(pkcs12_cmd: list[str], pfx_path: str, password: str, output_dir: str) -> str:
+def _extract_client_cert(
+    pkcs12_cmd: list[str], pfx_path: str, password: str, output_dir: str
+) -> str:
+    client_only_path = os.path.join(output_dir, "client_only.pem")
+    cmd = pkcs12_cmd + [
+        "-in",
+        pfx_path,
+        "-clcerts",
+        "-nokeys",
+        "-out",
+        client_only_path,
+        "-passin",
+        f"pass:{password}",
+    ]
+    _run_openssl(cmd, "Fallo al extraer certificado de cliente")
+    return client_only_path
+
+
+def _extract_ca_chain(
+    pkcs12_cmd: list[str], pfx_path: str, password: str, output_dir: str
+) -> str:
+    ca_chain_path = os.path.join(output_dir, "ca_chain.pem")
+    cmd = pkcs12_cmd + [
+        "-in",
+        pfx_path,
+        "-cacerts",
+        "-nokeys",
+        "-out",
+        ca_chain_path,
+        "-passin",
+        f"pass:{password}",
+    ]
+    _run_openssl(cmd, "Fallo al extraer cadena de CAs")
+    return ca_chain_path
+
+
+def _extract_privpub(
+    pkcs12_cmd: list[str], pfx_path: str, password: str, output_dir: str
+) -> str:
     privpub_path = os.path.join(output_dir, "privpub.pem")
     cmd = pkcs12_cmd + [
         "-in",
@@ -82,6 +121,48 @@ def _extract_privpub(pkcs12_cmd: list[str], pfx_path: str, password: str, output
     ]
     _run_openssl(cmd, "Fallo al extraer privpub.pem")
     return privpub_path
+
+
+def _concat_client_pem(client_only_path: str, ca_chain_path: str, output_dir: str) -> str:
+    client_path = os.path.join(output_dir, "client.pem")
+    with open(client_path, "wb") as target:
+        for candidate in (client_only_path, ca_chain_path):
+            if candidate and os.path.exists(candidate) and os.path.getsize(candidate) > 0:
+                with open(candidate, "rb") as handler:
+                    target.write(handler.read())
+    return client_path
+
+
+def _openssl_modulus_hash(path: str, kind: str) -> str:
+    if kind not in {"rsa", "x509"}:
+        raise ValueError("kind debe ser 'rsa' o 'x509'")
+
+    cmd = ["openssl", kind, "-noout", "-modulus", "-in", path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"No se pudo obtener el modulus de {path}: {result.stderr.strip() or result.stdout.strip()}"
+        )
+
+    output = (result.stdout or "").strip()
+    modulus = output.split("=", 1)[-1].strip() if output else ""
+    if not modulus:
+        raise RuntimeError(f"No se pudo leer el modulus de {path}")
+
+    import hashlib
+
+    return hashlib.md5(modulus.encode("utf-8")).hexdigest()
+
+
+def _verify_key_matches_cert(key_path: str, client_path: str, municipality: Municipality) -> None:
+    key_md5 = _openssl_modulus_hash(key_path, "rsa")
+    cert_md5 = _openssl_modulus_hash(client_path, "x509")
+
+    if key_md5 != cert_md5:
+        raise RuntimeError(
+            "KEY_VALUES_MISMATCH: key.pem no corresponde con el primer certificado en "
+            f"client.pem para el municipio {municipality.name} (id={municipality.id})."
+        )
 
 
 def extract_and_assign_cert(
@@ -101,11 +182,16 @@ def extract_and_assign_cert(
     pkcs12_cmd = _detect_pkcs12_cmd()
 
     key_path = _extract_key(pkcs12_cmd, pfx_path, password, output_dir)
+    client_only_path = _extract_client_cert(pkcs12_cmd, pfx_path, password, output_dir)
+    ca_chain_path = _extract_ca_chain(pkcs12_cmd, pfx_path, password, output_dir)
+    client_path = _concat_client_pem(client_only_path, ca_chain_path, output_dir)
     privpub_path = _extract_privpub(pkcs12_cmd, pfx_path, password, output_dir)
 
-    for label, path in ("key.pem", key_path), ("privpub.pem", privpub_path):
+    for label, path in ("key.pem", key_path), ("client.pem", client_path):
         if not path or not os.path.isfile(path) or os.path.getsize(path) == 0:
             raise RuntimeError(f"No se pudo generar {label} en {output_dir}")
+
+    _verify_key_matches_cert(key_path, client_path, municipality)
 
     cert_name = f"MOSSOS_{slug}"
     existing = (
@@ -116,18 +202,21 @@ def extract_and_assign_cert(
 
     if existing:
         certificate = existing
-        certificate.path = os.path.abspath(privpub_path)
+        certificate.path = os.path.abspath(client_path)
         certificate.key_path = os.path.abspath(key_path)
         certificate.type = "PEM"
         certificate.active = True
         certificate.municipality_id = municipality.id
+        certificate.pfx_path = os.path.abspath(pfx_path)
+        certificate.privpub_path = os.path.abspath(privpub_path)
     else:
         certificate = Certificate(
             name=cert_name,
             type="PEM",
-            path=os.path.abspath(privpub_path),
+            path=os.path.abspath(client_path),
             key_path=os.path.abspath(key_path),
             pfx_path=os.path.abspath(pfx_path),
+            privpub_path=os.path.abspath(privpub_path),
             municipality_id=municipality.id,
             active=True,
         )
@@ -142,6 +231,7 @@ def extract_and_assign_cert(
         municipality=municipality,
         certificate=certificate,
         key_path=os.path.abspath(key_path),
+        client_path=os.path.abspath(client_path),
         privpub_path=os.path.abspath(privpub_path),
     )
 
