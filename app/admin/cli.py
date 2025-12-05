@@ -7,6 +7,8 @@ import sys
 import traceback
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
+
 from app.admin import cleanup
 from app.config import settings
 from app.models import SessionLocal
@@ -158,11 +160,23 @@ def _execute(argv: Optional[list[str]] = None) -> int:
                 "Municipios desvinculados: {unlinked_municipalities}.".format(**summary)
             )
         elif args.command == "wipe-readings":
-            summary = cleanup.wipe_all_readings(
-                session,
-                delete_images=not args.keep_images,
-                delete_queue=not args.keep_queue,
-            )
+            try:
+                summary = cleanup.wipe_all_readings(
+                    session,
+                    delete_images=not args.keep_images,
+                    delete_queue=not args.keep_queue,
+                )
+            except (IntegrityError, ValueError) as exc:
+                logger.error(
+                    "[CLI][ERROR] No se han podido borrar las lecturas: %s", exc
+                )
+                print(
+                    "No se han podido borrar las lecturas porque existen referencias "
+                    "en la cola de mensajes. Use --keep-queue para conservarla o "
+                    "ejecute primero la limpieza de la cola."
+                )
+                return 1
+
             readings = summary.get("readings") or 0
             messages = summary.get("messages") or 0
             images = summary.get("images") or 0

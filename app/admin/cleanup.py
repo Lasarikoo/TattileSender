@@ -273,17 +273,35 @@ def wipe_all_readings(
     readings = list(session.execute(select(AlprReading)).scalars())
     reading_ids = [r.id for r in readings]
 
+    deleted_messages = 0
+    if delete_queue:
+        if reading_ids:
+            deleted_messages = (
+                session.query(MessageQueue)
+                .filter(MessageQueue.reading_id.in_(reading_ids))
+                .delete(synchronize_session=False)
+            )
+        else:
+            deleted_messages = (
+                session.query(MessageQueue).delete(synchronize_session=False)
+            )
+    else:
+        referenced_messages = 0
+        if reading_ids:
+            referenced_messages = (
+                session.query(MessageQueue)
+                .filter(MessageQueue.reading_id.in_(reading_ids))
+                .count()
+            )
+        if referenced_messages:
+            raise ValueError(
+                "No se pueden borrar lecturas mientras existan mensajes en la cola. "
+                "Ejecute primero la limpieza de la cola o use delete_queue=True."
+            )
+
     deleted_images = 0
     if delete_images and readings:
         deleted_images = _log_and_count_images(readings)
-
-    deleted_messages = 0
-    if delete_queue and reading_ids:
-        deleted_messages = (
-            session.query(MessageQueue)
-            .filter(MessageQueue.reading_id.in_(reading_ids))
-            .delete(synchronize_session=False)
-        )
 
     deleted_readings = session.query(AlprReading).delete(synchronize_session=False)
     session.commit()
