@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Iterable, Optional
 
 from sqlalchemy import select
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import AlprReading, Camera, Certificate, Endpoint, MessageQueue, Municipality
 from app.utils.cleanup import delete_reading_images
+from app.utils.images import resolve_image_path
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +20,11 @@ def _log_and_count_images(readings: Iterable[AlprReading]) -> int:
     for reading in readings:
         count += int(
             bool(reading.image_ocr_path)
-            and os.path.isfile(reading.image_ocr_path)
+            and resolve_image_path(reading.image_ocr_path).is_file()
         )
         count += int(
             bool(reading.image_ctx_path)
-            and os.path.isfile(reading.image_ctx_path)
+            and resolve_image_path(reading.image_ctx_path).is_file()
         )
         delete_reading_images(reading)
         reading.image_ocr_path = None
@@ -39,13 +39,14 @@ def _delete_image_paths(reading_rows: Iterable[tuple[int, Optional[str], Optiona
     for _, ocr_path, ctx_path in reading_rows:
         for path in (ocr_path, ctx_path):
             if path:
+                full_path = resolve_image_path(path)
                 try:
-                    if os.path.isfile(path):
-                        os.remove(path)
+                    if full_path.is_file():
+                        full_path.unlink()
                         images_deleted += 1
                 except Exception:  # pragma: no cover - defensivo
                     logger.warning(
-                        "[CLEANUP] No se ha podido borrar la imagen: %s", path, exc_info=True
+                        "[CLEANUP] No se ha podido borrar la imagen: %s", full_path, exc_info=True
                     )
     return images_deleted
 

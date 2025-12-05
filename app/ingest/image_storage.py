@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import base64
-import os
 from datetime import datetime
 
-from app.config import settings
 from app.logger import logger
+from app.utils.images import build_image_paths, normalize_plate
 
 
 def save_reading_image_base64(
@@ -18,21 +17,19 @@ def save_reading_image_base64(
 ) -> str | None:
     """Guarda una imagen ALPR (OCR o contexto) en disco.
 
-    Devuelve la ruta absoluta del fichero escrito o ``None`` si ocurre un error
+    Devuelve la ruta relativa del fichero escrito o ``None`` si ocurre un error
     al decodificar o persistir los bytes. Está pensada para consumir
     directamente las etiquetas ``IMAGE_OCR`` / ``IMAGE_CTX`` del XML de Tattile.
     """
 
-    plate_clean = (plate or "").replace(" ", "").upper()
+    plate_clean = normalize_plate(plate)
 
-    base_dir = settings.IMAGES_DIR
-    date_part = timestamp_utc.strftime("%Y/%m/%d")
-    target_dir = os.path.join(base_dir, device_sn, date_part)
-    os.makedirs(target_dir, exist_ok=True)
-
-    ts_str = timestamp_utc.strftime("%Y%m%d%H%M%S")
-    filename = f"{ts_str}_plate-{plate_clean}_{kind}.jpg"
-    full_path = os.path.join(target_dir, filename)
+    rel_ocr, rel_ctx, full_ocr, full_ctx = build_image_paths(
+        device_sn, timestamp_utc, plate_clean
+    )
+    target_rel, target_full = (
+        (rel_ocr, full_ocr) if kind == "ocr" else (rel_ctx, full_ctx)
+    )
 
     try:
         image_bytes = base64.b64decode(base64_data)
@@ -47,16 +44,20 @@ def save_reading_image_base64(
         return None
 
     try:
-        with open(full_path, "wb") as f:
-            f.write(image_bytes)
+        target_full.write_bytes(image_bytes)
     except Exception as e:  # pragma: no cover - logging defensivo
         logger.error(
             "[IMAGEN][ERROR] Error guardando imagen %s en %s: %s",
             kind,
-            full_path,
+            target_full,
             e,
         )
         return None
 
-    logger.info("[IMAGEN] Imagen %s guardada para lectura de %s: %s", kind.upper(), device_sn, full_path)
-    return full_path
+    logger.info(
+        "[IMAGEN] Imagen %s guardada para lectura de %s: %s",
+        kind.upper(),
+        device_sn,
+        target_full,
+    )
+    return target_rel
