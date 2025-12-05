@@ -116,7 +116,6 @@ def _serve_connection(conn: socket.socket, addr: tuple, session_factory: Callabl
         return
 
     xml_str = b"".join(data_chunks).decode("utf-8", errors="replace")
-    logger.info("[INGEST] XML recibido desde %s", addr)
     session = session_factory()
     try:
         process_tattile_payload(xml_str, session)
