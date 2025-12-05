@@ -141,6 +141,29 @@ Cuando uses Docker, `DB_HOST` puede ser `db` si ejecutas procesos en contenedore
   ```
   y sigue las opciones de menú.
 
+## Eliminación y limpieza de datos
+- El menú `./ajustes.sh` incluye un apartado **Eliminar datos** que permite borrar cámaras, municipios, certificados y endpoints, siempre pidiendo confirmación antes de proceder.
+- Desde el mismo menú se pueden hacer limpiezas masivas:
+  - Borrar todas las lecturas (`alpr_readings`), incluyendo las imágenes asociadas y la cola si se selecciona.
+  - Vaciar completamente `messages_queue`.
+  - Borrar todas las imágenes físicas guardadas en `IMAGES_DIR`.
+  - Limpieza total combinando lecturas, cola e imágenes.
+- Todas las opciones muestran un mensaje de advertencia antes de ejecutar la acción.
+
+Ejemplos de uso directo del CLI administrativo (puede ejecutarse sin abrir el menú):
+```bash
+# Borrar todas las lecturas (imágenes y cola incluidas por defecto)
+python -m app.admin.cli wipe-readings
+
+# Limpiar la cola sin tocar lecturas
+python -m app.admin.cli wipe-queue
+
+# Eliminar una cámara por número de serie
+python -m app.admin.cli delete-camera --serial-number 2001008851
+```
+
+> ⚠️ Estas operaciones son destructivas y no se pueden deshacer. Úsalas con copias de seguridad recientes o en entornos de pruebas.
+
 ## Notas
 - No almacenes certificados `.pfx` ni contraseñas reales en el repositorio.
 - En producción se recomienda gestionar variables de entorno mediante el sistema o un servicio de secretos.
