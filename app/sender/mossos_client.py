@@ -11,7 +11,7 @@ import requests
 from zeep import Client, Settings
 from zeep.exceptions import Fault, TransportError
 from zeep.transports import Transport
-from zeep.wsse.signature import Signature
+from zeep.wsse.signature import BinarySignature
 
 from app.logger import logger
 from app.models import AlprReading, Camera
@@ -19,6 +19,19 @@ from app.utils.images import resolve_image_path
 
 MATRICULA_NS = "http://dgp.gencat.cat/matricules"
 BINDING_QNAME = "{http://dgp.gencat.cat/matricules}MatriculesSoap11"
+
+
+class SignOnlySignature(BinarySignature):
+    """
+    Variante de BinarySignature que sólo firma peticiones y omite la verificación.
+
+    El servicio MATR-WS no firma las respuestas, por lo que la verificación
+    estándar de Zeep fallaría al no encontrar cabecera ``wsse:Security``.
+    Sobrescribimos ``verify`` para que no haga nada.
+    """
+
+    def verify(self, envelope):
+        return envelope
 
 
 @dataclass
@@ -68,7 +81,7 @@ class MossosZeepClient:
         self.client = Client(
             wsdl=wsdl_url,
             transport=transport,
-            wsse=Signature(key_path, cert_path),
+            wsse=SignOnlySignature(keyfile=key_path, certfile=cert_path),
             settings=Settings(strict=True, xml_huge_tree=True),
         )
         self.service = self.client.create_service(BINDING_QNAME, endpoint_url)
