@@ -85,6 +85,67 @@ if __name__ == "__main__":
 PY
 }
 
+extract_pfx_and_assign() {
+    CERTS_DIR=$(python -c "from app.config import settings; print(settings.certs_dir)" 2>/dev/null)
+    if [ -z "$CERTS_DIR" ]; then
+        CERTS_DIR="./certs"
+    fi
+
+    mapfile -t PFX_FILES < <(find "$CERTS_DIR" -maxdepth 1 -type f \( -iname "*.pfx" -o -iname "*.p12" \) | sort)
+
+    if [ ${#PFX_FILES[@]} -eq 0 ]; then
+        echo "No se han encontrado certificados PFX/P12 en $CERTS_DIR."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    echo "Certificados PFX encontrados:"
+    idx=1
+    for f in "${PFX_FILES[@]}"; do
+        echo "  $idx) $f"
+        idx=$((idx+1))
+    done
+
+    read -p "Selecciona un certificado por número: " SELECTED
+    if ! [[ "$SELECTED" =~ ^[0-9]+$ ]] || [ "$SELECTED" -lt 1 ] || [ "$SELECTED" -gt ${#PFX_FILES[@]} ]; then
+        echo "Selección inválida."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    PFX_PATH="${PFX_FILES[$((SELECTED-1))]}"
+
+    read -s -p "Introduce la contraseña del PFX: " PFX_PASS
+    echo
+
+    python -m app.admin.cli list-municipalities
+    read -p "Introduce el ID del municipio al que quieres asignar este certificado: " MUNICIPALITY_ID
+    if [ -z "$MUNICIPALITY_ID" ]; then
+        echo "El ID de municipio es obligatorio."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+    if ! [[ "$MUNICIPALITY_ID" =~ ^[0-9]+$ ]]; then
+        echo "El ID del municipio debe ser numérico."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    python -m app.admin.cli extract-assign-cert \
+        --pfx-path "$PFX_PATH" \
+        --password "$PFX_PASS" \
+        --municipality-id "$MUNICIPALITY_ID"
+
+    if [ $? -ne 0 ]; then
+        echo "Ha ocurrido un error durante la extracción o asignación del certificado."
+        read -p "Pulsa ENTER para continuar..." _
+        return
+    fi
+
+    echo "Certificado descomprimido y asignado correctamente a municipio $MUNICIPALITY_ID."
+    read -p "Pulsa ENTER para continuar..." _
+}
+
 list_endpoints() {
     python - <<'PY'
 from app.models import Endpoint, SessionLocal
@@ -133,8 +194,7 @@ show_add_menu() {
                 read -rp "Pulsa ENTER para continuar..." _
                 ;;
             4)
-                python -m app.scripts.import_certificate_from_pfx
-                read -rp "Pulsa ENTER para continuar..." _
+                extract_pfx_and_assign
                 ;;
             5)
                 break

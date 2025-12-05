@@ -11,8 +11,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.admin import cleanup
+from app.admin.certs import extract_and_assign_cert
 from app.config import settings
-from app.models import SessionLocal
+from app.models import Municipality, SessionLocal
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -95,6 +96,24 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     subparsers.add_parser("wipe-images", help="Borrar todas las imágenes físicas")
     subparsers.add_parser("full-wipe", help="Lecturas + cola + imágenes")
 
+    subparsers.add_parser(
+        "list-municipalities", help="Listar municipios con su código e ID"
+    )
+
+    extract_parser = subparsers.add_parser(
+        "extract-assign-cert", help="Extraer PEM de un PFX y asignarlo a un municipio"
+    )
+    extract_parser.add_argument("--pfx-path", required=True, help="Ruta del fichero .pfx/.p12")
+    extract_parser.add_argument(
+        "--password", required=True, help="Contraseña del fichero .pfx/.p12"
+    )
+    extract_parser.add_argument(
+        "--municipality-id",
+        required=True,
+        type=int,
+        help="ID del municipio al que asociar el certificado extraído",
+    )
+
     return parser.parse_args(argv)
 
 
@@ -117,6 +136,8 @@ def _execute(argv: Optional[list[str]] = None) -> int:
             "wipe-queue",
             "wipe-images",
             "full-wipe",
+            "list-municipalities",
+            "extract-assign-cert",
         }:
             session = _open_session()
 
@@ -217,6 +238,35 @@ def _execute(argv: Optional[list[str]] = None) -> int:
                     readings=readings, messages=messages, images=images
                 )
             )
+        elif args.command == "list-municipalities":
+            municipalities = session.query(Municipality).order_by(Municipality.id).all()
+            if not municipalities:
+                print("No hay municipios registrados.")
+            else:
+                print("ID | Código | Nombre")
+                for mun in municipalities:
+                    code = mun.code or "-"
+                    print(f"{mun.id} | {code} | {mun.name}")
+        elif args.command == "extract-assign-cert":
+            try:
+                result = extract_and_assign_cert(
+                    session,
+                    pfx_path=args.pfx_path,
+                    password=args.password,
+                    municipality_id=args.municipality_id,
+                )
+            except Exception as exc:
+                logger.error("[CERT][ERROR] %s", exc)
+                print(f"[CERT][ERROR] {exc}")
+                return 1
+
+            print(
+                f"[CERT] PFX extraído para municipio \"{result.municipality.name}\" "
+                f"(id={result.municipality.id})."
+            )
+            print(f"[CERT] key.pem:      {result.key_path}")
+            print(f"[CERT] privpub.pem:  {result.privpub_path}")
+            print(f"[CERT] Certificate.id: {result.certificate.id}")
         else:
             print("Comando no reconocido")
             return 1

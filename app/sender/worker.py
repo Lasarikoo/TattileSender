@@ -29,12 +29,6 @@ def _resolve_retry_config(endpoint) -> tuple[int, int]:
     return int(retry_max), int(backoff_ms)
 
 
-def _full_cert_path(cert_path: str) -> str:
-    if os.path.isabs(cert_path):
-        return cert_path
-    return os.path.join(settings.certs_dir, cert_path)
-
-
 def _load_candidates(session: Session, batch_size: int) -> Iterable[MessageQueue]:
     query = (
         session.query(MessageQueue)
@@ -146,7 +140,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
     )
 
     endpoint = camera.endpoint or (municipality.endpoint if municipality else None)
-    certificate = camera.certificate or (municipality.certificate if municipality else None)
+    certificate = municipality.certificate if municipality else None
 
     if not endpoint:
         logger.error(
@@ -167,14 +161,6 @@ def process_message(session: Session, message: MessageQueue) -> None:
         _mark_dead(session, message, "CERTIFICADO_NO_CONFIGURADO")
         return
 
-    if not certificate.path:
-        logger.error(
-            "[CERT][ERROR] Ruta de certificado vacía para mensaje %s (cert=%s)",
-            message.id,
-            certificate.id if hasattr(certificate, "id") else None,
-        )
-        _mark_dead(session, message, "CERTIFICADO_SIN_RUTA")
-        return
     if not endpoint.url:
         logger.error(
             "[MOSSOS][ERROR] Endpoint URL no configurada para mensaje %s (endpoint=%s)",
@@ -209,27 +195,20 @@ def process_message(session: Session, message: MessageQueue) -> None:
 
     _mark_sending(session, message)
 
+    if not municipality:
+        logger.error(
+            "[CERT][ERROR] Municipio no asociado a mensaje %s (camera=%s)",
+            message.id,
+            camera.serial_number if camera else None,
+        )
+        _mark_dead(session, message, "MUNICIPIO_NO_DISPONIBLE")
+        return
+
     timeout_seconds = max((endpoint.timeout_ms or 5000) / 1000.0, 1.0)
-    cert_candidate = certificate.public_cert_path or certificate.path or ""
-    cert_path = _full_cert_path(cert_candidate)
-    key_path = _full_cert_path(certificate.key_path) if certificate.key_path else None
-
-    logger.info("[MOSSOS] Usando endpoint: %s", endpoint.url)
-    logger.info("[CERT] Usando certificado=%s key=%s", cert_path, key_path or "<no-key>")
-
-    if not os.path.exists(cert_path):
-        logger.error("[CERT][ERROR] Certificado no encontrado en %s", cert_path)
-        _mark_dead(session, message, f"Certificate file not found: {cert_path}")
-        return
-    if key_path and not os.path.exists(key_path):
-        logger.error("[CERT][ERROR] Clave privada no encontrada en %s", key_path)
-        _mark_dead(session, message, f"Key file not found: {key_path}")
-        return
 
     send_started = time.monotonic()
     client = MossosClient(
         endpoint_url=endpoint.url,
-        cert_full_path=(cert_path, key_path) if key_path else cert_path,
         timeout=timeout_seconds,
     )
 
@@ -238,7 +217,12 @@ def process_message(session: Session, message: MessageQueue) -> None:
             reading=reading,
             camera=camera,
             municipality=municipality,
+            session=session,
         )
+    except RuntimeError as exc:
+        logger.error("[CERT][ERROR] %s", exc)
+        _mark_dead(session, message, str(exc))
+        return
     except FileNotFoundError as exc:
         _mark_dead(session, message, f"NO_IMAGE_FILE_RUNTIME: {exc}")
         logger.warning(
