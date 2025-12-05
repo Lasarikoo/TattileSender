@@ -8,6 +8,7 @@ import traceback
 from typing import Optional
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.admin import cleanup
 from app.config import settings
@@ -166,6 +167,17 @@ def _execute(argv: Optional[list[str]] = None) -> int:
                     delete_images=not args.keep_images,
                     delete_queue=not args.keep_queue,
                 )
+            except StaleDataError as exc:
+                logger.error(
+                    "[CLI][ERROR] Se ha producido un StaleDataError durante la "
+                    "limpieza de lecturas: %s",
+                    exc,
+                )
+                print(
+                    "La limpieza de lecturas ha fallado por un conflicto interno "
+                    "de sesión (StaleDataError)."
+                )
+                return 1
             except (IntegrityError, ValueError) as exc:
                 logger.error(
                     "[CLI][ERROR] No se han podido borrar las lecturas: %s", exc

@@ -34,6 +34,22 @@ def _log_and_count_images(readings: Iterable[AlprReading]) -> int:
     return count
 
 
+def _delete_image_paths(reading_rows: Iterable[tuple[int, Optional[str], Optional[str]]]) -> int:
+    images_deleted = 0
+    for _, ocr_path, ctx_path in reading_rows:
+        for path in (ocr_path, ctx_path):
+            if path:
+                try:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                        images_deleted += 1
+                except Exception:  # pragma: no cover - defensivo
+                    logger.warning(
+                        "[CLEANUP] No se ha podido borrar la imagen: %s", path, exc_info=True
+                    )
+    return images_deleted
+
+
 def _get_camera(session: Session, identifier: str) -> Camera:
     camera: Optional[Camera] = None
     if identifier.isdigit():
@@ -101,19 +117,21 @@ def delete_camera(
     camera = _get_camera(session, camera_identifier)
     logger.info("Eliminando cámara %s (id=%s)", camera.serial_number, camera.id)
 
-    readings = list(
-        session.execute(
-            select(AlprReading).where(AlprReading.camera_id == camera.id)
-        ).scalars()
-    )
-    reading_ids = [r.id for r in readings]
+    reading_rows = session.query(
+        AlprReading.id,
+        AlprReading.image_ocr_path,
+        AlprReading.image_ctx_path,
+    ).filter(AlprReading.camera_id == camera.id)
+
+    readings_data = reading_rows.all()
+    reading_ids = [row[0] for row in readings_data]
 
     if not delete_readings and reading_ids:
         raise ValueError("No se puede borrar la cámara sin eliminar sus lecturas asociadas.")
 
     deleted_images = 0
-    if delete_images and readings:
-        deleted_images = _log_and_count_images(readings)
+    if delete_images and readings_data:
+        deleted_images = _delete_image_paths(readings_data)
 
     deleted_messages = 0
     if delete_queue and reading_ids:
@@ -270,8 +288,13 @@ def wipe_all_readings(
 ) -> dict:
     """Borra todas las lecturas y opcionalmente imágenes y cola."""
 
-    readings = list(session.execute(select(AlprReading)).scalars())
-    reading_ids = [r.id for r in readings]
+    reading_rows = session.query(
+        AlprReading.id,
+        AlprReading.image_ocr_path,
+        AlprReading.image_ctx_path,
+    ).all()
+
+    reading_ids = [row[0] for row in reading_rows]
 
     deleted_messages = 0
     if delete_queue:
@@ -282,8 +305,8 @@ def wipe_all_readings(
                 .delete(synchronize_session=False)
             )
         else:
-            deleted_messages = (
-                session.query(MessageQueue).delete(synchronize_session=False)
+            deleted_messages = session.query(MessageQueue).delete(
+                synchronize_session=False
             )
     else:
         referenced_messages = 0
@@ -300,10 +323,17 @@ def wipe_all_readings(
             )
 
     deleted_images = 0
-    if delete_images and readings:
-        deleted_images = _log_and_count_images(readings)
+    if delete_images and reading_rows:
+        deleted_images = _delete_image_paths(reading_rows)
 
-    deleted_readings = session.query(AlprReading).delete(synchronize_session=False)
+    deleted_readings = 0
+    if reading_ids:
+        deleted_readings = (
+            session.query(AlprReading)
+            .filter(AlprReading.id.in_(reading_ids))
+            .delete(synchronize_session=False)
+        )
+
     session.commit()
     logger.info(
         "Eliminadas %s lecturas, %s mensajes y %s imágenes",
@@ -351,13 +381,10 @@ def wipe_all_images_and_unset(session: Session) -> int:
 def full_wipe(session: Session) -> dict:
     """Limpieza total de lecturas, cola e imágenes."""
 
-    deleted_queue = wipe_all_queue(session)
-    readings_summary = wipe_all_readings(
-        session, delete_images=True, delete_queue=False
-    )
+    readings_summary = wipe_all_readings(session, delete_images=True, delete_queue=True)
     deleted_images = wipe_all_images()
     return {
-        "messages": deleted_queue,
+        "messages": readings_summary.get("messages", 0),
         "readings": readings_summary.get("readings", 0),
         "images": deleted_images + readings_summary.get("images", 0),
     }
