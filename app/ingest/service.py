@@ -91,15 +91,7 @@ def process_tattile_payload(xml_str: str, session: Session) -> None:
 
         session.commit()
 
-        municipality = camera.municipality.name if camera and camera.municipality else "?"
-        logger.info(
-            "[INGEST] Lectura recibida: matrícula=%s, cámara=%s, municipio=%s, id_lectura=%s, id_mensaje=%s",
-            reading.plate,
-            device_sn,
-            municipality,
-            reading.id,
-            message.id,
-        )
+        logger.info("Lectura recibida %s de %s", reading.plate, device_sn)
     except Exception as exc:
         session.rollback()
         logger.error("[INGEST][ERROR] Error guardando lectura: %s", exc)

@@ -22,6 +22,8 @@ from app.sender.cleanup import delete_reading_images
 from app.sender.mossos_client import MossosZeepClient
 from app.utils.images import resolve_image_path
 
+SUCCESS_CODES = ("1", "0000", "OK", "1.0")
+
 
 def _resolve_retry_config(endpoint) -> tuple[int, int]:
     retry_max = getattr(endpoint, "retry_max", None) or settings.sender_default_retry_max
@@ -141,16 +143,6 @@ def process_message(session: Session, message: MessageQueue) -> None:
 
     endpoint = camera.endpoint or (municipality.endpoint if municipality else None)
     certificate = municipality.certificate if municipality else None
-
-    if not endpoint:
-        logger.error(
-            "[SENDER][DEAD] No hay endpoint configurado para mensaje %s (municipio=%s cámara=%s)",
-            message.id,
-            municipality.name if municipality else None,
-            camera.serial_number if camera else None,
-        )
-        _mark_dead(session, message, "ENDPOINT_NO_CONFIGURADO")
-        return
     if not certificate:
         logger.error(
             "[CERT][ERROR] No hay certificado configurado para mensaje %s (municipio=%s cámara=%s)",
@@ -161,7 +153,8 @@ def process_message(session: Session, message: MessageQueue) -> None:
         _mark_dead(session, message, "CERTIFICADO_NO_CONFIGURADO")
         return
 
-    if not endpoint.url:
+    service_url = endpoint.url if endpoint else settings.MOSSOS_ENDPOINT_URL
+    if not service_url:
         logger.error(
             "[MOSSOS][ERROR] Endpoint URL no configurada para mensaje %s (endpoint=%s)",
             message.id,
@@ -169,6 +162,9 @@ def process_message(session: Session, message: MessageQueue) -> None:
         )
         _mark_dead(session, message, "ENDPOINT_URL_NO_CONFIGURADA")
         return
+    logger.debug(
+        "[SENDER][DEBUG] Endpoint efectivo para mensaje %s: %s", message.id, service_url
+    )
 
     retry_max, backoff_ms = _resolve_retry_config(endpoint)
     logger.info(
@@ -207,7 +203,6 @@ def process_message(session: Session, message: MessageQueue) -> None:
     timeout_ms = endpoint.timeout_ms if getattr(endpoint, "timeout_ms", None) else int(settings.mossos_timeout * 1000)
     timeout_seconds = max(timeout_ms / 1000.0, 1.0)
 
-    service_url = settings.MOSSOS_ENDPOINT_URL or endpoint.url
     cert_path = getattr(certificate, "client_cert_path", None) or certificate.path
     key_path = certificate.key_path
     if not cert_path or not key_path:
@@ -284,7 +279,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
         error_msg = "RESPUESTA_SIN_DETALLE"
 
     data_error = result.codi_retorn is not None and (
-        result.codi_retorn not in ("1", "0000", "OK")
+        result.codi_retorn not in SUCCESS_CODES
     )
 
     message.last_error = error_msg

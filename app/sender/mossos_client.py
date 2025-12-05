@@ -45,14 +45,18 @@ class MossosZeepClient:
 
     def __init__(
         self,
+        *,
         wsdl_url: str,
-        endpoint_url: str | None,
+        endpoint_url: str,
         cert_path: str,
         key_path: str,
         timeout: float = 5.0,
     ) -> None:
         session = requests.Session()
         session.verify = True
+
+        if not endpoint_url:
+            raise ValueError("Endpoint SOAP no configurado")
 
         if not os.path.isfile(cert_path):
             raise FileNotFoundError(f"Certificado cliente no encontrado: {cert_path}")
@@ -67,12 +71,11 @@ class MossosZeepClient:
             wsse=Signature(key_path, cert_path),
             settings=Settings(strict=True, xml_huge_tree=True),
         )
-        self.service = (
-            self.client.create_service(BINDING_QNAME, endpoint_url)
-            if endpoint_url
-            else self.client.service
+        self.service = self.client.create_service(BINDING_QNAME, endpoint_url)
+        logger.info(
+            "[MOSSOS] WS-Security X509 Signature habilitada (endpoint=%s)",
+            endpoint_url,
         )
-        logger.info("[MOSSOS] WS-Security X509 Signature habilitada (endpoint=%s)", endpoint_url)
 
     def _format_date_time(self, timestamp: datetime) -> tuple[str, str]:
         ts = timestamp
@@ -137,13 +140,15 @@ class MossosZeepClient:
     def send_matricula(self, reading: AlprReading, camera: Camera) -> MossosSendResult:
         request_data = self.build_matricula_request(reading, camera)
         try:
-            response = self.service.matricula(matriculaRequest=request_data)
+            logger.debug("[MOSSOS][DEBUG] Payload matricula: %s", request_data)
+            response = self.service.matricula(**request_data)
             codi_retorn = getattr(response, "codiRetorn", None)
-            success = codi_retorn in ("OK", "0000", "1")
+            normalized_code = str(codi_retorn) if codi_retorn is not None else None
+            success = normalized_code in ("OK", "0000", "1", "1.0")
             return MossosSendResult(
                 success=success,
                 http_status=200,
-                codi_retorn=codi_retorn,
+                codi_retorn=normalized_code,
                 fault=None,
                 raw_response=str(response),
             )
