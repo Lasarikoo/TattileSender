@@ -6,9 +6,7 @@ import os
 from datetime import datetime
 
 from app.config import settings
-import logging
-
-logger = logging.getLogger(__name__)
+from app.logger import logger
 
 
 def save_reading_image_base64(
@@ -40,7 +38,7 @@ def save_reading_image_base64(
         image_bytes = base64.b64decode(base64_data)
     except Exception as e:  # pragma: no cover - logging defensivo
         logger.error(
-            "[INGEST][IMAGE] Error decodificando base64 (%s) para %s/%s: %s",
+            "[IMAGEN][ERROR] Error decodificando imagen %s para cámara %s, matrícula=%s: %s",
             kind,
             device_sn,
             plate_clean,
@@ -53,11 +51,12 @@ def save_reading_image_base64(
             f.write(image_bytes)
     except Exception as e:  # pragma: no cover - logging defensivo
         logger.error(
-            "[INGEST][IMAGE] Error guardando imagen (%s) en %s: %s",
+            "[IMAGEN][ERROR] Error guardando imagen %s en %s: %s",
             kind,
             full_path,
             e,
         )
         return None
 
+    logger.info("[IMAGEN] Imagen %s guardada para lectura de %s: %s", kind.upper(), device_sn, full_path)
     return full_path

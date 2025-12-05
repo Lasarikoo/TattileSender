@@ -1,16 +1,8 @@
 """Punto de entrada ejecutable para el sender worker."""
 from __future__ import annotations
 
-import logging
-import sys
-
+from app.logger import logger  # noqa: F401 - inicializa configuración global
 from app.sender.worker import run_sender_worker
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
-    stream=sys.stdout,
-)
 
 
 def main() -> None:

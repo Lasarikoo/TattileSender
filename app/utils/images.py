@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 import base64
-import logging
 import os
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
 from app.config import settings
-
-logger = logging.getLogger(__name__)
+from app.logger import logger
 
 
 def normalize_plate(plate: Optional[str]) -> str:
@@ -52,7 +50,7 @@ def save_reading_image(
     try:
         os.makedirs(target_dir, exist_ok=True)
     except OSError as exc:  # pragma: no cover - defensive
-        logger.error("No se pudo crear directorio de imágenes %s: %s", target_dir, exc)
+        logger.error("[IMAGEN][ERROR] No se pudo crear directorio de imágenes %s: %s", target_dir, exc)
         return None
 
     filename = f"{ts_str}_plate-{safe_plate}_{kind}.jpg"
@@ -61,18 +59,18 @@ def save_reading_image(
     try:
         image_bytes = base64.b64decode(base64_data)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.error("No se pudo decodificar base64 de imagen %s: %s", kind, exc)
+        logger.error("[IMAGEN][ERROR] Error decodificando imagen %s: %s", kind, exc)
         return None
 
     try:
         with open(full_path, "wb") as f:
             f.write(image_bytes)
     except OSError as exc:  # pragma: no cover - filesystem
-        logger.error("No se pudo escribir la imagen %s en %s: %s", kind, full_path, exc)
+        logger.error("[IMAGEN][ERROR] No se pudo escribir la imagen %s en %s: %s", kind, full_path, exc)
         return None
 
     rel_path = os.path.relpath(full_path, settings.images_dir)
-    logger.info("[INGEST] Imagen %s almacenada en %s", kind, rel_path)
+    logger.info("[IMAGEN] Imagen %s guardada en %s", kind, rel_path)
     return rel_path
 
 
