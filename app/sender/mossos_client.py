@@ -81,9 +81,7 @@ class MossosZeepClient:
         self.client = Client(
             wsdl=wsdl_url,
             transport=transport,
-            # ``Signature`` espera los argumentos ``key_file`` y ``cert_file``;
-            # usando ``keyfile``/``certfile`` Zeep lanza TypeError.
-            wsse=SignOnlySignature(key_file=key_path, cert_file=cert_path),
+            wsse=SignOnlySignature(keyfile=key_path, certfile=cert_path),
             settings=Settings(strict=True, xml_huge_tree=True),
         )
         self.service = self.client.create_service(BINDING_QNAME, endpoint_url)
