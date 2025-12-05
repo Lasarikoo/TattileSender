@@ -28,13 +28,26 @@ MATRICULA_NS = "http://dgp.gencat.cat/matricules"
 
 
 @dataclass
-class MossosResult:
-    """Resultado estandarizado de la operación ``matricula``."""
+class FaultInfo:
+    faultcode: Optional[str]
+    faultstring: Optional[str]
+    detail: Optional[str] = None
 
+
+@dataclass
+class MatriculaRetInfo:
+    codi_retorn: Optional[str]
+    descripcion: Optional[str] = None
+
+
+@dataclass
+class MossosSendResult:
     success: bool
-    code: Optional[int | str]
+    http_status: Optional[int]
     error_message: Optional[str]
-    raw_response: Optional[str]
+    fault: Optional[FaultInfo]
+    matricula_ret: Optional[MatriculaRetInfo]
+    raw_response_snippet: Optional[str]
 
 
 @dataclass
@@ -194,7 +207,7 @@ class MossosClient:
         camera: Camera,
         municipality: Municipality,
         session: Session,
-    ) -> MossosResult:
+    ) -> MossosSendResult:
         logger.info(
             "[MOSSOS] Generando SOAP para lectura %s, matrícula=%s",
             reading.id,
@@ -222,7 +235,14 @@ class MossosClient:
                 reading.id,
                 exc,
             )
-            return MossosResult(success=False, code=None, error_message=str(exc), raw_response=None)
+            return MossosSendResult(
+                success=False,
+                http_status=None,
+                error_message=str(exc),
+                fault=None,
+                matricula_ret=None,
+                raw_response_snippet=None,
+            )
 
         cert_pair = resolve_cert_pair_for_municipality(session, municipality.id)
 
@@ -232,17 +252,89 @@ class MossosClient:
             cert_pair.key_path,
         )
 
-        headers = {
-            "Content-Type": "text/xml; charset=utf-8",
-            "SOAPAction": "matricula",
-        }
+        response = self._perform_request(
+            xml_payload=xml_payload, cert_pair=cert_pair, reading_id=reading.id
+        )
+        if response is None:
+            return MossosSendResult(
+                success=False,
+                http_status=None,
+                error_message="Error de transporte",
+                fault=None,
+                matricula_ret=None,
+                raw_response_snippet=None,
+            )
 
+        response_body = response.text
+        status = response.status_code
+        snippet = response_body[:2000]
+        logger.info(
+            "[MOSSOS][RESP_BODY] %s",
+            snippet,
+        )
+
+        if status != 200:
+            fault_info, matricula_info = self._parse_error_response(response_body)
+            if fault_info:
+                logger.error(
+                    "[MOSSOS][FAULT] faultcode=%s faultstring=%s detail=%s",
+                    fault_info.faultcode,
+                    fault_info.faultstring,
+                    fault_info.detail,
+                )
+            if matricula_info:
+                logger.error(
+                    "[MOSSOS][CODI_RETORN] codiRetorn=%s descr=%s",
+                    matricula_info.codi_retorn,
+                    matricula_info.descripcion,
+                )
+            if not fault_info and not matricula_info:
+                logger.error("[MOSSOS][ERROR] Respuesta HTTP %s no parseable como SOAP", status)
+
+            return MossosSendResult(
+                success=False,
+                http_status=status,
+                error_message=f"HTTP {status}",
+                fault=fault_info,
+                matricula_ret=matricula_info,
+                raw_response_snippet=snippet,
+            )
+
+        ret_info = self._parse_success_response(response_body)
+        if ret_info:
+            logger.info(
+                "[MOSSOS][CODI_RETORN] codiRetorn=%s descr=%s",
+                ret_info.codi_retorn,
+                ret_info.descripcion,
+            )
+        else:
+            logger.warning("[MOSSOS][ADVERTENCIA] Respuesta 200 sin codiRetorn identificable")
+
+        success = ret_info is not None and (
+            ret_info.codi_retorn in ("1", "0000")
+        )
+
+        return MossosSendResult(
+            success=success,
+            http_status=status,
+            error_message=None if success else "Respuesta con error de negocio",
+            fault=None,
+            matricula_ret=ret_info,
+            raw_response_snippet=snippet,
+        )
+
+    def _perform_request(
+        self, *, xml_payload: bytes, cert_pair: CertPair, reading_id: int
+    ) -> requests.Response | None:
         try:
             send_started = time.monotonic()
             response = requests.post(
                 self.endpoint_url,
                 data=xml_payload,
-                headers=headers,
+                headers={
+                    "Content-Type": "text/xml; charset=utf-8",
+                    "SOAPAction": "matricula",
+                },
                 timeout=self.timeout,
                 cert=(cert_pair.cert_path, cert_pair.key_path),
                 verify=self.verify,
@@ -256,49 +348,68 @@ class MossosClient:
             logger.debug(
                 "[MOSSOS][DEBUG] Cabeceras respuesta: %s", dict(response.headers)
             )
-            response.raise_for_status()
+            return response
         except Exception as exc:  # pragma: no cover - logging defensivo
             logger.exception(
                 "[MOSSOS][ERROR] Error HTTP/SSL para lectura %s: %s",
-                reading.id,
+                reading_id,
                 exc,
             )
-            return MossosResult(success=False, code=None, error_message=str(exc), raw_response=None)
+            return None
 
+    def _parse_error_response(
+        self, xml_text: str
+    ) -> tuple[FaultInfo | None, MatriculaRetInfo | None]:
         try:
-            root = ET.fromstring(response.content)
+            root = ET.fromstring(xml_text)
         except ET.ParseError as exc:
-            logger.error("[MOSSOS][ERROR] Respuesta no parseable: %s", exc)
-            logger.debug("[MOSSOS][DEBUG] XML Recibido bruto:\n%s", response.text)
-            return MossosResult(success=False, code=None, error_message=str(exc), raw_response=response.text)
+            logger.error("[MOSSOS][ERROR] Respuesta no parseable como XML: %s", exc)
+            logger.debug("[MOSSOS][DEBUG] XML bruto no parseable:\n%s", xml_text[:2000])
+            return None, None
 
-        fault = root.find(".//faultstring")
-        if fault is not None:
-            err_msg = fault.text or "SOAP Fault"
-            logger.error("[MOSSOS][ERROR] Fault reading_id=%s error=%s", reading.id, err_msg)
-            logger.debug("[MOSSOS][DEBUG] XML Recibido:\n%s", self._beautify_xml(response.content))
-            return MossosResult(success=False, code=None, error_message=err_msg, raw_response=response.text)
+        fault_node = root.find(
+            f".//{{{SOAP_ENV_NS}}}Fault"
+        ) or root.find(".//faultcode")
+        fault_info = None
+        if fault_node is not None:
+            faultcode = fault_node.findtext("faultcode") if fault_node.tag != "faultcode" else fault_node.text
+            faultstring = (
+                fault_node.findtext("faultstring")
+                if fault_node.tag != "faultstring"
+                else fault_node.text
+            )
+            detail = None
+            detail_node = fault_node.find("detail") if fault_node.tag != "detail" else fault_node
+            if detail_node is not None:
+                detail = detail_node.text
+            fault_info = FaultInfo(
+                faultcode=faultcode,
+                faultstring=faultstring,
+                detail=detail,
+            )
 
+        matricula_info = self._parse_matricula_response(root)
+        return fault_info, matricula_info
+
+    def _parse_success_response(self, xml_text: str) -> MatriculaRetInfo | None:
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError as exc:
+            logger.error("[MOSSOS][ERROR] Respuesta 200 no parseable: %s", exc)
+            logger.debug("[MOSSOS][DEBUG] XML bruto:\n%s", xml_text[:2000])
+            return None
+
+        return self._parse_matricula_response(root)
+
+    def _parse_matricula_response(self, root: ET.Element) -> MatriculaRetInfo | None:
         resp_node = root.find(f".//{{{MATRICULA_NS}}}matriculaResponse")
         if resp_node is None:
-            logger.error("[MOSSOS][ERROR] Respuesta sin matriculaResponse")
-            logger.debug("[MOSSOS][DEBUG] XML Recibido:\n%s", self._beautify_xml(response.content))
-            return MossosResult(success=False, code=None, error_message="Respuesta sin matriculaResponse", raw_response=response.text)
+            return None
 
-        code_text = resp_node.findtext(f".//{{{MATRICULA_NS}}}codiRetorn")
-        try:
-            code_value = int(code_text) if code_text is not None else None
-        except ValueError:
-            code_value = code_text
-
-        if code_value == 1:
-            logger.info("[MOSSOS] Envío correcto reading_id=%s codiRetorn=1", reading.id)
-            logger.debug("[MOSSOS][DEBUG] XML Recibido:\n%s", self._beautify_xml(response.content))
-            return MossosResult(success=True, code=code_value, error_message=None, raw_response=response.text)
-
-        error_msg = "Service not operational" if code_value == 0 else "Error en codiRetorn"
-        logger.error(
-            "[MOSSOS][ERROR] Envío rechazado reading_id=%s codiRetorn=%s", reading.id, code_value
+        codi_retorn = resp_node.findtext(f".//{{{MATRICULA_NS}}}codiRetorn")
+        descripcion = (
+            resp_node.findtext(f".//{{{MATRICULA_NS}}}descripcioRetorn")
+            or resp_node.findtext(f".//{{{MATRICULA_NS}}}descripcio")
         )
-        logger.debug("[MOSSOS][DEBUG] XML Recibido:\n%s", self._beautify_xml(response.content))
-        return MossosResult(success=False, code=code_value, error_message=error_msg, raw_response=response.text)
+
+        return MatriculaRetInfo(codi_retorn=codi_retorn, descripcion=descripcion)

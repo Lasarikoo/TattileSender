@@ -230,21 +230,14 @@ def process_message(session: Session, message: MessageQueue) -> None:
         )
         return
 
-    error_msg = result.error_message or ""
-    if error_msg.startswith("NO_IMAGE"):
-        _mark_dead(session, message, result.error_message)
-        return
-    if "fichero de imagen" in error_msg or "imagen no disponible" in error_msg:
-        _mark_dead(session, message, f"NO_IMAGE_FILE: {error_msg}")
-        return
-
     duration_ms = int((time.monotonic() - send_started) * 1000)
     logger.info(
-        "[SENDER] Resultado envío lectura %s (msg_id=%s): éxito=%s código=%s duración=%sms",
+        "[SENDER] Resultado envío lectura %s (msg_id=%s): éxito=%s http=%s codiRetorn=%s duración=%sms",
         reading.id,
         message.id,
         result.success,
-        result.code,
+        result.http_status,
+        result.matricula_ret.codi_retorn if result.matricula_ret else None,
         duration_ms,
     )
 
@@ -263,17 +256,37 @@ def process_message(session: Session, message: MessageQueue) -> None:
             "[SENDER] Envío correcto de lectura %s (msg_id=%s). Código respuesta=%s",
             reading.id,
             message.id,
-            result.code,
+            result.matricula_ret.codi_retorn if result.matricula_ret else None,
         )
         return
 
-    message.last_error = result.error_message
-    if message.attempts >= retry_max:
+    error_msg = result.error_message or ""
+    if result.fault:
+        error_msg = f"FAULT {result.fault.faultcode}: {result.fault.faultstring}".strip()
+    elif result.matricula_ret:
+        error_msg = (
+            f"codiRetorn={result.matricula_ret.codi_retorn}"
+            f" descr={result.matricula_ret.descripcion or ''}"
+        ).strip()
+
+    data_error = result.matricula_ret is not None and (
+        result.matricula_ret.codi_retorn not in ("1", "0000")
+    )
+
+    message.last_error = error_msg
+    if data_error:
+        message.status = MessageStatus.DEAD
+        logger.error(
+            "[SENDER][DEAD] Mensaje %s marcado DEAD por error de datos: %s",
+            message.id,
+            error_msg,
+        )
+    elif message.attempts >= retry_max:
         message.status = MessageStatus.DEAD
         logger.error(
             "[SENDER][DEAD] Mensaje %s agotó reintentos y se marca DEAD: %s",
             message.id,
-            result.error_message,
+            error_msg,
         )
     else:
         message.status = MessageStatus.FAILED
@@ -282,7 +295,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
             "[SENDER][ERROR] Error enviando lectura %s (msg_id=%s): %s. Reintento programado a las %s",
             reading.id,
             message.id,
-            result.error_message,
+            error_msg,
             message.next_retry_at,
         )
 
