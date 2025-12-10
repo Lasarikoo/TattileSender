@@ -10,6 +10,7 @@ from typing import Optional
 import requests
 from zeep import Client, Settings
 from zeep.exceptions import Fault, TransportError
+from zeep.helpers import serialize_object
 from zeep.plugins import Plugin
 from zeep.transports import Transport
 
@@ -169,16 +170,76 @@ class MossosZeepClient:
         try:
             logger.debug("[MOSSOS][DEBUG] Payload matricula: %s", request_data)
             response = self.service.matricula(**request_data)
+            serialized = serialize_object(response)
+            logger.debug("[MOSSOS][DEBUG] Respuesta serializada de matricula(): %r", serialized)
             logger.debug("[MOSSOS][DEBUG] Respuesta recibida correctamente")
+            if response is None:
+                return MossosSendResult(
+                    success=False,
+                    http_status=200,
+                    codi_retorn=None,
+                    fault="RESPUESTA_VACIA",
+                    raw_response=None,
+                )
+
             codi_retorn = getattr(response, "codiRetorn", None)
-            normalized_code = str(codi_retorn) if codi_retorn is not None else None
-            success = normalized_code in ("OK", "0000", "1", "1.0")
+            serialized_codi_retorn = None
+            if isinstance(serialized, dict):
+                serialized_codi_retorn = serialized.get("codiRetorn")
+
+            normalized_code = None
+            for code_candidate in (codi_retorn, serialized_codi_retorn):
+                if code_candidate is not None:
+                    normalized_code = str(code_candidate)
+                    break
+
+            explicit_error_code = None
+            explicit_error_msg = None
+            resultat_value = None
+            if isinstance(serialized, dict):
+                explicit_error_code = serialized.get("codiError") or serialized.get("errorCode")
+                explicit_error_msg = serialized.get("error") or serialized.get("descripcio")
+                resultat_value = serialized.get("resultat")
+            else:
+                explicit_error_code = getattr(response, "codiError", None)
+                explicit_error_msg = getattr(response, "error", None)
+                resultat_value = getattr(response, "resultat", None)
+
+            error_resultat = resultat_value not in (None, "", 0, "0", "OK", "1", "1.0", 1, 1.0)
+
+            if explicit_error_code or explicit_error_msg or error_resultat:
+                error_parts = []
+                if explicit_error_code:
+                    error_parts.append(f"codiError={explicit_error_code}")
+                if explicit_error_msg:
+                    error_parts.append(str(explicit_error_msg))
+                if error_resultat:
+                    error_parts.append(f"resultat={resultat_value}")
+                error_detail = " | ".join(error_parts) or "RESPUESTA_ERROR_DESCONOCIDO"
+                return MossosSendResult(
+                    success=False,
+                    http_status=200,
+                    codi_retorn=normalized_code,
+                    fault=error_detail,
+                    raw_response=str(serialized),
+                )
+
+            success_codes = ("OK", "0000", "1", "1.0")
+            success = normalized_code in success_codes or normalized_code is None
+            if normalized_code is None:
+                # Mossos puede devolver respuestas mínimas sin "detalle" ni codiRetorn.
+                # Consideramos el envío correcto si no hay Fault ni códigos de error explícitos.
+                logger.warning(
+                    "[MOSSOS] Respuesta sin campo detalle para lectura %s: %r",
+                    getattr(reading, "id", None),
+                    serialized,
+                )
             return MossosSendResult(
                 success=success,
                 http_status=200,
                 codi_retorn=normalized_code,
                 fault=None,
-                raw_response=str(response),
+                raw_response=str(serialized),
             )
         except Fault as fault:
             logger.error(
