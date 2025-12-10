@@ -170,44 +170,81 @@ create_systemd_services() {
   local ingest_service="/etc/systemd/system/tattile-ingest.service"
   local sender_service="/etc/systemd/system/tattile-sender.service"
 
-  local api_content="[Unit]\nDescription=TattileSender - API HTTP\nAfter=network.target\n\n[Service]\nWorkingDirectory=${APP_DIR}\nEnvironmentFile=${APP_DIR}/.env\nExecStart=${VENV_DIR}/bin/uvicorn app.api.main:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=5\nUser=root\nGroup=root\n\n[Install]\nWantedBy=multi-user.target"
+  echo "Creando ${api_service}..."
+  sudo tee "$api_service" > /dev/null << 'EOF'
+[Unit]
+Description=TattileSender API
+After=network.target
 
-  local ingest_content="[Unit]\nDescription=TattileSender - Ingest Service\nAfter=network.target\n\n[Service]\nWorkingDirectory=${APP_DIR}\nEnvironmentFile=${APP_DIR}/.env\nExecStart=${VENV_DIR}/bin/python -m app.ingest.main\nRestart=always\nRestartSec=5\nUser=root\nGroup=root\n\n[Install]\nWantedBy=multi-user.target"
+[Service]
+WorkingDirectory=/opt/TattileSender
+EnvironmentFile=/opt/TattileSender/.env
+ExecStart=/opt/TattileSender/.venv/bin/uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+Restart=always
+User=root
+Group=root
 
-  local sender_content="[Unit]\nDescription=TattileSender - Worker de envío a Mossos\nAfter=network.target\n\n[Service]\nWorkingDirectory=${APP_DIR}\nEnvironmentFile=${APP_DIR}/.env\nExecStart=${VENV_DIR}/bin/python -m app.sender.main\nRestart=always\nRestartSec=5\nUser=root\nGroup=root\n\n[Install]\nWantedBy=multi-user.target"
+[Install]
+WantedBy=multi-user.target
+EOF
 
-  if prompt_overwrite_service "$api_service"; then
-    create_service_file "$api_service" "$api_content"
-  fi
-  if prompt_overwrite_service "$ingest_service"; then
-    create_service_file "$ingest_service" "$ingest_content"
-  fi
-  if prompt_overwrite_service "$sender_service"; then
-    create_service_file "$sender_service" "$sender_content"
-  fi
+  echo "Creando ${ingest_service}..."
+  sudo tee "$ingest_service" > /dev/null << 'EOF'
+[Unit]
+Description=TattileSender - Ingest Service
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/TattileSender
+EnvironmentFile=/opt/TattileSender/.env
+ExecStart=/opt/TattileSender/.venv/bin/python -m app.ingest.main
+Restart=always
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  echo "Creando ${sender_service}..."
+  sudo tee "$sender_service" > /dev/null << 'EOF'
+[Unit]
+Description=TattileSender - Worker de envío a Mossos
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/TattileSender
+EnvironmentFile=/opt/TattileSender/.env
+ExecStart=/opt/TattileSender/.venv/bin/python -m app.sender.main
+Restart=always
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  for svc in tattile-api tattile-ingest tattile-sender; do
+    if [ ! -s "/etc/systemd/system/${svc}.service" ]; then
+      echo "ERROR: /etc/systemd/system/${svc}.service no existe o está vacío"
+      exit 1
+    fi
+  done
 
   echo "Recargando systemd y habilitando servicios..."
   sudo systemctl daemon-reload
   sudo systemctl enable tattile-api.service tattile-ingest.service tattile-sender.service
+  sudo systemctl status tattile-api.service --no-pager -l || true
+  sudo systemctl status tattile-ingest.service --no-pager -l || true
+  sudo systemctl status tattile-sender.service --no-pager -l || true
 }
 
 start_services() {
   echo "Iniciando servicios..."
-  sudo systemctl start tattile-api.service
-  sudo systemctl start tattile-ingest.service
-  sudo systemctl start tattile-sender.service
-
-  echo "Estado de los servicios:"
-  echo "API: $(systemctl is-active tattile-api.service || true)"
-  echo "Ingest: $(systemctl is-active tattile-ingest.service || true)"
-  echo "Sender: $(systemctl is-active tattile-sender.service || true)"
-
-  cat <<'INFO'
-Para ver logs:
-  journalctl -u tattile-api.service -f
-  journalctl -u tattile-ingest.service -f
-  journalctl -u tattile-sender.service -f
-INFO
+  sudo systemctl restart tattile-api.service tattile-ingest.service tattile-sender.service
+  sudo systemctl status tattile-api.service --no-pager -l || true
+  sudo systemctl status tattile-ingest.service --no-pager -l || true
+  sudo systemctl status tattile-sender.service --no-pager -l || true
 }
 
 main() {
