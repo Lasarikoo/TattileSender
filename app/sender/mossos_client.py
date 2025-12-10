@@ -10,8 +10,11 @@ from typing import Optional
 import requests
 from zeep import Client, Settings
 from zeep.exceptions import Fault, TransportError
+from zeep.plugins import Plugin
 from zeep.transports import Transport
 from zeep.wsse.signature import BinarySignature
+
+from app.sender.wsse import TimestampedBinarySignature
 
 from app.logger import logger
 from app.models import AlprReading, Camera
@@ -30,6 +33,17 @@ class SignOnlySignature(BinarySignature):
     def verify(self, envelope):
         # No hacemos verificación de respuesta, simplemente devolvemos el envelope
         return envelope
+
+
+class SoapDebugPlugin(Plugin):
+    """Plugin opcional para volcar el XML final cuando SOAP_DEBUG=1."""
+
+    def egress(self, envelope, http_headers, operation, binding_options):
+        from lxml import etree
+
+        xml = etree.tostring(envelope, pretty_print=True, encoding="unicode")
+        logger.info("[MOSSOS][SOAP DEBUG] Envelope:\n%s", xml)
+        return envelope, http_headers
 
 
 @dataclass
@@ -76,11 +90,16 @@ class MossosZeepClient:
 
         transport = Transport(session=session, timeout=timeout)
 
+        plugins = []
+        if os.getenv("SOAP_DEBUG") == "1":
+            plugins.append(SoapDebugPlugin())
+
         self.client = Client(
             wsdl=wsdl_url,
             transport=transport,
-            wsse=SignOnlySignature(key_file=key_path, certfile=cert_path),
+            wsse=TimestampedBinarySignature(key_file=key_path, certfile=cert_path),
             settings=Settings(strict=True, xml_huge_tree=True),
+            plugins=plugins or None,
         )
         self.service = self.client.create_service(BINDING_QNAME, endpoint_url)
         logger.info(
