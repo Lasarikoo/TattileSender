@@ -192,7 +192,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
 
     ok_images, image_error = _validate_images(reading)
     if not ok_images:
-        logger.warning("[SENDER] Lectura sin imagen (%s) descartada", plate)
+        logger.info("[SENDER] Lectura sin imagen (%s) descartada", plate)
         logger.debug("[SENDER][DEBUG] Motivo imagen inválida para %s: %s", plate, image_error)
         _mark_dead(
             session,
@@ -249,7 +249,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
     try:
         result = client.send_matricula(reading=reading, camera=camera)
     except FileNotFoundError as exc:
-        logger.warning("[SENDER] Lectura sin imagen (%s) descartada", plate)
+        logger.info("[SENDER] Lectura sin imagen (%s) descartada", plate)
         logger.debug(
             "[IMAGEN][DEBUG] Lectura %s sin imagen por error de disco: %s", plate, exc
         )
