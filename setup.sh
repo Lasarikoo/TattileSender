@@ -173,14 +173,15 @@ create_systemd_services() {
   echo "Creando ${api_service}..."
   sudo tee "$api_service" > /dev/null << 'EOF'
 [Unit]
-Description=TattileSender API
+Description=TattileSender - API HTTP
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/TattileSender
-EnvironmentFile=/opt/TattileSender/.env
-ExecStart=/opt/TattileSender/.venv/bin/uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+WorkingDirectory=/root/TattileSender
+EnvironmentFile=/root/TattileSender/.env
+ExecStart=/root/TattileSender/.venv/bin/uvicorn app.api.main:app --host 0.0.0.0 --port 8000
 Restart=always
+RestartSec=5
 User=root
 Group=root
 
@@ -195,10 +196,11 @@ Description=TattileSender - Ingest Service
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/TattileSender
-EnvironmentFile=/opt/TattileSender/.env
-ExecStart=/opt/TattileSender/.venv/bin/python -m app.ingest.main
+WorkingDirectory=/root/TattileSender
+EnvironmentFile=/root/TattileSender/.env
+ExecStart=/root/TattileSender/.venv/bin/python -m app.ingest.main
 Restart=always
+RestartSec=5
 User=root
 Group=root
 
@@ -213,10 +215,11 @@ Description=TattileSender - Worker de envío a Mossos
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/TattileSender
-EnvironmentFile=/opt/TattileSender/.env
-ExecStart=/opt/TattileSender/.venv/bin/python -m app.sender.main
+WorkingDirectory=/root/TattileSender
+EnvironmentFile=/root/TattileSender/.env
+ExecStart=/root/TattileSender/.venv/bin/python -m app.sender.main
 Restart=always
+RestartSec=5
 User=root
 Group=root
 
@@ -241,7 +244,7 @@ EOF
 
 start_services() {
   echo "Iniciando servicios..."
-  sudo systemctl restart tattile-api.service tattile-ingest.service tattile-sender.service
+  sudo systemctl start tattile-api.service tattile-ingest.service tattile-sender.service
   sudo systemctl status tattile-api.service --no-pager -l || true
   sudo systemctl status tattile-ingest.service --no-pager -l || true
   sudo systemctl status tattile-sender.service --no-pager -l || true
