@@ -52,7 +52,7 @@ class MossosSendResult:
     fault: Optional[str]
     raw_response: Optional[str] = None
 
-def load_image_base64(path: Optional[str]) -> bytes:
+def load_image_base64(path: Optional[str]) -> str:
     if not path:
         raise FileNotFoundError("Ruta de imagen no disponible")
 
@@ -60,7 +60,7 @@ def load_image_base64(path: Optional[str]) -> bytes:
     if not full_path.is_file():
         raise FileNotFoundError(f"Fichero no encontrado en {full_path}")
 
-    return base64.b64encode(full_path.read_bytes())
+    return base64.b64encode(full_path.read_bytes()).decode("ascii")
 
 
 class MossosZeepClient:
