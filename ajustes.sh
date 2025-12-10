@@ -530,6 +530,66 @@ reiniciar_servicios_tattile() {
     read -rp "Pulsa Enter para volver al menú de utilidades..." _
 }
 
+ver_logs_tiempo_real() {
+    get_estado_servicio() {
+        local service_name="$1"
+        if systemctl is-active --quiet "$service_name"; then
+            echo "activo"
+        else
+            echo "inactivo"
+        fi
+    }
+
+    while true; do
+        clear
+        local estado_api estado_ingest estado_sender
+        estado_api=$(get_estado_servicio "tattile-api.service")
+        estado_ingest=$(get_estado_servicio "tattile-ingest.service")
+        estado_sender=$(get_estado_servicio "tattile-sender.service")
+
+        echo "=== LOGS EN TIEMPO REAL ==="
+        echo "Servicios detectados:"
+        echo
+        echo "1) tattile-api.service   ($estado_api)"
+        echo "2) tattile-ingest.service ($estado_ingest)"
+        echo "3) tattile-sender.service ($estado_sender)"
+        echo "4) Volver al menú de utilidades"
+        echo
+        read -rp "Selecciona un servicio: " opt_log
+
+        case "$opt_log" in
+            1)
+                clear
+                echo "Mostrando logs en tiempo real de tattile-api.service (Ctrl+C para salir)..."
+                journalctl -u tattile-api.service -n 50 -f
+                echo
+                read -rp "Pulsa Enter para volver al menú de logs..." _
+                ;;
+            2)
+                clear
+                echo "Mostrando logs en tiempo real de tattile-ingest.service (Ctrl+C para salir)..."
+                journalctl -u tattile-ingest.service -n 50 -f
+                echo
+                read -rp "Pulsa Enter para volver al menú de logs..." _
+                ;;
+            3)
+                clear
+                echo "Mostrando logs en tiempo real de tattile-sender.service (Ctrl+C para salir)..."
+                journalctl -u tattile-sender.service -n 50 -f
+                echo
+                read -rp "Pulsa Enter para volver al menú de logs..." _
+                ;;
+            4)
+                break
+                ;;
+            *)
+                echo "Opción no válida"
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+        esac
+    done
+}
+
 menu_utilidades_sistema() {
     while true; do
         clear
@@ -537,7 +597,8 @@ menu_utilidades_sistema() {
         echo "1) Ver uso del sistema y recursos"
         echo "2) Ver total de datos en base de datos"
         echo "3) Reiniciar todos los servicios TattileSender"
-        echo "4) Volver al menú principal"
+        echo "4) Ver logs en tiempo real de servicios"
+        echo "5) Volver al menú principal"
         read -rp "Selecciona una opción: " opt
         case "$opt" in
             1)
@@ -550,6 +611,9 @@ menu_utilidades_sistema() {
                 reiniciar_servicios_tattile
                 ;;
             4)
+                ver_logs_tiempo_real
+                ;;
+            5)
                 clear
                 break
                 ;;
