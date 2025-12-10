@@ -100,7 +100,7 @@ class MossosZeepClient:
             plugins=plugins or None,
         )
         self.service = self.client.create_service(BINDING_QNAME, endpoint_url)
-        logger.info(
+        logger.debug(
             "[MOSSOS] WS-Security X509 Signature habilitada (endpoint=%s)",
             endpoint_url,
         )
@@ -173,6 +173,14 @@ class MossosZeepClient:
             serialized = serialize_object(response)
             logger.debug("[MOSSOS][DEBUG] Respuesta serializada de matricula(): %r", serialized)
             logger.debug("[MOSSOS][DEBUG] Respuesta recibida correctamente")
+            if serialized in (1, "1"):
+                return MossosSendResult(
+                    success=True,
+                    http_status=200,
+                    codi_retorn=str(serialized),
+                    fault=None,
+                    raw_response=str(serialized),
+                )
             if response is None:
                 return MossosSendResult(
                     success=False,
@@ -226,14 +234,6 @@ class MossosZeepClient:
 
             success_codes = ("OK", "0000", "1", "1.0")
             success = normalized_code in success_codes or normalized_code is None
-            if normalized_code is None:
-                # Mossos puede devolver respuestas mínimas sin "detalle" ni codiRetorn.
-                # Consideramos el envío correcto si no hay Fault ni códigos de error explícitos.
-                logger.warning(
-                    "[MOSSOS] Respuesta sin campo detalle para lectura %s: %r",
-                    getattr(reading, "id", None),
-                    serialized,
-                )
             return MossosSendResult(
                 success=success,
                 http_status=200,
