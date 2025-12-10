@@ -12,7 +12,6 @@ from zeep import Client, Settings
 from zeep.exceptions import Fault, TransportError
 from zeep.plugins import Plugin
 from zeep.transports import Transport
-from zeep.wsse.signature import BinarySignature
 
 from app.sender.wsse import TimestampedBinarySignature
 
@@ -24,14 +23,12 @@ MATRICULA_NS = "http://dgp.gencat.cat/matricules"
 BINDING_QNAME = "{http://dgp.gencat.cat/matricules}MatriculesSoap11"
 
 
-class SignOnlySignature(BinarySignature):
-    """
-    Variante de BinarySignature que sólo firma las peticiones
-    y NO intenta verificar la respuesta del servidor.
-    """
+class NoVerifySignature(TimestampedBinarySignature):
+    """Firma WS-Security sin verificación de respuesta."""
 
     def verify(self, envelope):
-        # No hacemos verificación de respuesta, simplemente devolvemos el envelope
+        # Mossos no firma la respuesta con WS-Security.
+        # No intentamos buscar <wsse:Security> ni <ds:Signature>.
         return envelope
 
 
@@ -97,7 +94,7 @@ class MossosZeepClient:
         self.client = Client(
             wsdl=wsdl_url,
             transport=transport,
-            wsse=TimestampedBinarySignature(key_file=key_path, certfile=cert_path),
+            wsse=NoVerifySignature(key_file=key_path, certfile=cert_path),
             settings=Settings(strict=True, xml_huge_tree=True),
             plugins=plugins or None,
         )
@@ -172,6 +169,7 @@ class MossosZeepClient:
         try:
             logger.debug("[MOSSOS][DEBUG] Payload matricula: %s", request_data)
             response = self.service.matricula(**request_data)
+            logger.debug("[MOSSOS][DEBUG] Respuesta recibida correctamente")
             codi_retorn = getattr(response, "codiRetorn", None)
             normalized_code = str(codi_retorn) if codi_retorn is not None else None
             success = normalized_code in ("OK", "0000", "1", "1.0")
