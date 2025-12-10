@@ -4,6 +4,12 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$PROJECT_DIR/.venv/bin/activate"
 
+if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    source "$PROJECT_DIR/.env"
+    set +a
+fi
+
 list_cameras() {
     python - <<'PY'
 from app.models import Camera, SessionLocal
@@ -386,53 +392,119 @@ show_update_menu() {
 }
 
 mostrar_uso_sistema() {
-    echo "== UPTIME Y CARGA =="
-    uptime
+    get_cpu_usage() {
+        local cpu_line1 cpu_line2 idle1 idle2 total1 total2 i
+        read -r cpu_line1 < /proc/stat
+        sleep 0.1
+        read -r cpu_line2 < /proc/stat
 
-    echo
-    echo "== MEMORIA =="
-    free -h
+        read -ra cpu1 <<< "$cpu_line1"
+        read -ra cpu2 <<< "$cpu_line2"
 
-    echo
-    echo "== DISCO (df -h /) =="
-    df -h /
+        idle1=${cpu1[4]}
+        idle2=${cpu2[4]}
+        total1=0
+        total2=0
 
-    echo
-    echo "== TOP 5 PROCESOS POR CPU =="
-    ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 6
+        for i in "${cpu1[@]:1}"; do
+            total1=$((total1 + i))
+        done
+        for i in "${cpu2[@]:1}"; do
+            total2=$((total2 + i))
+        done
 
-    echo
-    echo "== TOP 5 PROCESOS POR MEMORIA =="
-    ps -eo pid,comm,%cpu,%mem --sort=-%mem | head -n 6
+        local total_diff=$((total2 - total1))
+        local idle_diff=$((idle2 - idle1))
+        awk "BEGIN {if ($total_diff==0) print 0; else printf \"%.1f\", (100 * ($total_diff - $idle_diff) / $total_diff)}"
+    }
 
-    echo
-    read -rp "Pulsa Enter para volver al menú de utilidades..." _
+    get_net_totals() {
+        awk 'NR>2 {rx+=$2; tx+=$10} END {print rx, tx}' /proc/net/dev
+    }
+
+    read -r prev_rx prev_tx < <(get_net_totals)
+
+    while true; do
+        clear
+
+        local uptime_info cpu_usage mem_total mem_used mem_percent bar_length filled empty disk_info
+        local curr_rx curr_tx rx_rate tx_rate
+
+        uptime_info=$(uptime)
+        cpu_usage=$(get_cpu_usage)
+
+        mem_total=$(free -m | awk '/Mem:/ {print $2}')
+        mem_used=$(free -m | awk '/Mem:/ {print $3}')
+        if [[ -z "$mem_total" || "$mem_total" -eq 0 ]]; then
+            mem_percent=0
+            filled=0
+        else
+            mem_percent=$(awk "BEGIN {printf \"%.1f\", ($mem_used/$mem_total)*100}")
+            bar_length=30
+            filled=$(( (mem_used * bar_length) / mem_total ))
+        fi
+        bar_length=${bar_length:-30}
+        empty=$((bar_length - filled))
+
+        read -r curr_rx curr_tx < <(get_net_totals)
+        rx_rate=$(awk "BEGIN {printf \"%.1f\", ($curr_rx - $prev_rx)/1024}")
+        tx_rate=$(awk "BEGIN {printf \"%.1f\", ($curr_tx - $prev_tx)/1024}")
+        prev_rx=$curr_rx
+        prev_tx=$curr_tx
+
+        disk_info=$(df -h / | awk 'NR==2 {print $4" libres de "$2" ("$5" usado)"}')
+
+        printf "%-30s %s\n" "Uptime y carga:" "$uptime_info"
+        printf "%-30s %s%%\n" "CPU uso total:" "$cpu_usage"
+
+        printf "%-30s %s MiB / %s MiB (%s%%)\n" "RAM:" "$mem_used" "$mem_total" "$mem_percent"
+        printf "%-30s [%s%s]\n" "" "$(printf '%*s' "$filled" '' | tr ' ' '#')" "$(printf '%*s' "$empty" '' | tr ' ' '-')"
+
+        printf "%-30s %s\n" "Disco disponible (/)" "$disk_info"
+        printf "%-30s RX: %s KB/s | TX: %s KB/s\n" "Tráfico de red:" "$rx_rate" "$tx_rate"
+
+        echo
+        echo "== TOP 5 PROCESOS POR CPU =="
+        ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 6
+
+        echo
+        echo "== TOP 5 PROCESOS POR MEMORIA =="
+        ps -eo pid,comm,%cpu,%mem --sort=-%mem | head -n 6
+
+        echo
+        echo "Pulsa Q para salir"
+        read -t 1 -n 1 key && [[ $key == "q" || $key == "Q" ]] && break
+    done
 }
 
 mostrar_estadisticas_bd() {
-    if [ -z "$DB_NAME" ] || [ -z "$DB_USER" ]; then
-        echo "ERROR: Variables de entorno de base de datos no definidas (DB_NAME/DB_USER). Revisa el .env."
+    clear
+
+    if [[ -z "$DB_NAME" || -z "$DB_USER" ]]; then
+        echo "ERROR: Variables DB_NAME o DB_USER no cargadas."
         read -rp "Pulsa Enter para volver..." _
         return
     fi
 
-    echo "== TAMAÑO DE LA BASE DE DATOS =="
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT pg_size_pretty(pg_database_size('$DB_NAME'));"
+    echo "== TOTAL DE DATOS EN BASE DE DATOS =="
+    local query
+    query=$(cat <<'SQL'
+SELECT 
+ (SELECT COUNT(*) FROM alpr_readings) AS readings,
+ (SELECT COUNT(*) FROM messages_queue) AS queue,
+ (SELECT COUNT(*) FROM cameras) AS cameras,
+ (SELECT COUNT(*) FROM municipalities) AS municipalities;
+SQL
+)
 
-    echo
-    echo "== NÚMERO DE REGISTROS POR TABLA (si existen) =="
-
-    for table in alpr_readings messages_queue municipalities cameras certificates endpoints; do
-        echo "- $table:"
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM $table;" 2>/dev/null || echo "  (tabla no encontrada)"
-        echo
-    done
+    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" -c "$query"
 
     echo
     read -rp "Pulsa Enter para volver al menú de utilidades..." _
 }
 
 reiniciar_servicios_tattile() {
+    clear
     read -rp "Esto reiniciará tattile-api, tattile-ingest y tattile-sender. ¿Quieres continuar? [y/N] " confirm
     case "$confirm" in
         y|Y)
@@ -444,17 +516,15 @@ reiniciar_servicios_tattile() {
     esac
 
     echo "Reiniciando servicios..."
-    sudo systemctl restart tattile-api.service tattile-ingest.service tattile-sender.service || {
+    sudo systemctl restart tattile-api tattile-ingest tattile-sender || {
         echo "Error al reiniciar alguno de los servicios."
     }
 
     echo
     echo "== ESTADO DE LOS SERVICIOS =="
-    sudo systemctl status tattile-api.service --no-pager -l | sed -n '1,10p'
-    echo
-    sudo systemctl status tattile-ingest.service --no-pager -l | sed -n '1,10p'
-    echo
-    sudo systemctl status tattile-sender.service --no-pager -l | sed -n '1,10p'
+    for service in tattile-api tattile-ingest tattile-sender; do
+        printf "%s: %s\n" "$service" "$(systemctl is-active "$service")"
+    done
 
     echo
     read -rp "Pulsa Enter para volver al menú de utilidades..." _
@@ -462,6 +532,7 @@ reiniciar_servicios_tattile() {
 
 menu_utilidades_sistema() {
     while true; do
+        clear
         echo "=== UTILIDADES DEL SISTEMA ==="
         echo "1) Ver uso del sistema y recursos"
         echo "2) Ver total de datos en base de datos"
@@ -479,6 +550,7 @@ menu_utilidades_sistema() {
                 reiniciar_servicios_tattile
                 ;;
             4)
+                clear
                 break
                 ;;
             *)
