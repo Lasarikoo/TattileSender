@@ -385,6 +385,109 @@ show_update_menu() {
     done
 }
 
+mostrar_uso_sistema() {
+    echo "== UPTIME Y CARGA =="
+    uptime
+
+    echo
+    echo "== MEMORIA =="
+    free -h
+
+    echo
+    echo "== DISCO (df -h /) =="
+    df -h /
+
+    echo
+    echo "== TOP 5 PROCESOS POR CPU =="
+    ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 6
+
+    echo
+    echo "== TOP 5 PROCESOS POR MEMORIA =="
+    ps -eo pid,comm,%cpu,%mem --sort=-%mem | head -n 6
+
+    echo
+    read -rp "Pulsa Enter para volver al menú de utilidades..." _
+}
+
+mostrar_estadisticas_bd() {
+    if [ -z "$DB_NAME" ] || [ -z "$DB_USER" ]; then
+        echo "ERROR: Variables de entorno de base de datos no definidas (DB_NAME/DB_USER). Revisa el .env."
+        read -rp "Pulsa Enter para volver..." _
+        return
+    fi
+
+    echo "== TAMAÑO DE LA BASE DE DATOS =="
+    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT pg_size_pretty(pg_database_size('$DB_NAME'));"
+
+    echo
+    echo "== NÚMERO DE REGISTROS POR TABLA (si existen) =="
+
+    for table in alpr_readings messages_queue municipalities cameras certificates endpoints; do
+        echo "- $table:"
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM $table;" 2>/dev/null || echo "  (tabla no encontrada)"
+        echo
+    done
+
+    echo
+    read -rp "Pulsa Enter para volver al menú de utilidades..." _
+}
+
+reiniciar_servicios_tattile() {
+    read -rp "Esto reiniciará tattile-api, tattile-ingest y tattile-sender. ¿Quieres continuar? [y/N] " confirm
+    case "$confirm" in
+        y|Y)
+            ;;
+        *)
+            echo "Operación cancelada."
+            return
+            ;;
+    esac
+
+    echo "Reiniciando servicios..."
+    sudo systemctl restart tattile-api.service tattile-ingest.service tattile-sender.service || {
+        echo "Error al reiniciar alguno de los servicios."
+    }
+
+    echo
+    echo "== ESTADO DE LOS SERVICIOS =="
+    sudo systemctl status tattile-api.service --no-pager -l | sed -n '1,10p'
+    echo
+    sudo systemctl status tattile-ingest.service --no-pager -l | sed -n '1,10p'
+    echo
+    sudo systemctl status tattile-sender.service --no-pager -l | sed -n '1,10p'
+
+    echo
+    read -rp "Pulsa Enter para volver al menú de utilidades..." _
+}
+
+menu_utilidades_sistema() {
+    while true; do
+        echo "=== UTILIDADES DEL SISTEMA ==="
+        echo "1) Ver uso del sistema y recursos"
+        echo "2) Ver total de datos en base de datos"
+        echo "3) Reiniciar todos los servicios TattileSender"
+        echo "4) Volver al menú principal"
+        read -rp "Selecciona una opción: " opt
+        case "$opt" in
+            1)
+                mostrar_uso_sistema
+                ;;
+            2)
+                mostrar_estadisticas_bd
+                ;;
+            3)
+                reiniciar_servicios_tattile
+                ;;
+            4)
+                break
+                ;;
+            *)
+                echo "Opción no válida"
+                ;;
+        esac
+    done
+}
+
 while true; do
     clear
     echo "TattileSender - Ajustes"
@@ -392,6 +495,7 @@ while true; do
     echo "2) Asignar relaciones"
     echo "3) Eliminar datos"
     echo "4) Modificar datos"
+    echo "5) Utilidades del sistema"
     echo "0) Salir"
     read -rp "Seleccione una opción: " main_option
     case $main_option in
@@ -406,6 +510,9 @@ while true; do
             ;;
         4)
             show_update_menu
+            ;;
+        5)
+            menu_utilidades_sistema
             ;;
         0)
             exit 0
