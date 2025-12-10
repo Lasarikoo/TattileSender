@@ -1,42 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Script de instalación automática para TattileSender en Ubuntu.
-# Debe ejecutarse desde la raíz del proyecto con permisos de sudo.
-# No modifica el archivo .env; únicamente valida su existencia y usa sus valores.
-
 APP_DIR="$(pwd)"
 VENV_DIR="$APP_DIR/.venv"
 
-# Comprueba que estamos en la raíz del proyecto y que .env existe.
-check_project_root() {
-  if [[ ! -d "app" || ! -f "alembic.ini" || ! -f "requirements.txt" ]]; then
-    echo "ERROR: Este script debe ejecutarse desde la raíz del proyecto TattileSender." >&2
-    exit 1
-  fi
-  if [[ ! -f ".env" ]]; then
-    echo "ERROR: No se ha encontrado .env en el directorio actual. Crea y configura .env antes de ejecutar setup.sh" >&2
+check() {
+  local message="$1"
+  local cmd="$2"
+  printf "→ %s… " "$message"
+  if bash -c "$cmd"; then
+    echo "OK"
+    return 0
+  else
+    echo "FAILED"
+    echo "✖ Error ${message,}" >&2
     exit 1
   fi
 }
 
-# Función para leer un valor de .env (formato CLAVE=VALOR), ignorando comentarios y líneas vacías.
 get_env_var() {
   local key="$1"
   local value
   value=$(grep -E "^${key}=" .env | tail -n 1 | cut -d '=' -f2-)
-  # Elimina comillas simples o dobles envolventes, si existen
   value="${value%\"}"; value="${value#\"}"
   value="${value%\'}"; value="${value#\'}"
   echo "$value"
 }
 
-DB_NAME=""
-DB_USER=""
-DB_PASSWORD=""
-DB_HOST=""
-DB_PORT=""
-DB_ALREADY_EXISTS="no"
+ensure_project_root() {
+  if [[ ! -d "app" || ! -f "alembic.ini" || ! -f "requirements.txt" ]]; then
+    echo "✖ Este script debe ejecutarse desde la raíz del proyecto TattileSender." >&2
+    exit 1
+  fi
+  if [[ ! -f ".env" ]]; then
+    echo "✖ No se ha encontrado .env en el directorio actual." >&2
+    exit 1
+  fi
+}
 
 load_env_vars() {
   echo "Cargando variables desde .env..."
@@ -46,81 +46,66 @@ load_env_vars() {
   DB_HOST=$(get_env_var "DB_HOST")
   DB_PORT=$(get_env_var "DB_PORT")
 
-  if [[ -z "$DB_NAME" || -z "$DB_USER" || -z "$DB_PASSWORD" ]]; then
-    echo "ERROR: DB_NAME, DB_USER o DB_PASSWORD no están definidos en .env" >&2
+  if [[ -z "${DB_NAME:-}" || -z "${DB_USER:-}" || -z "${DB_PASSWORD:-}" ]]; then
+    echo "✖ DB_NAME, DB_USER o DB_PASSWORD no están definidos en .env" >&2
     exit 1
   fi
 }
 
-psql_command() {
-  local query="$1"
-  sudo -u postgres psql -tAc "$query"
-}
+describe_existing_installation() {
+  echo -n "→ Comprobando instalación existente… "
 
-# Comprueba si ya existe una instalación previa.
-check_existing_installation() {
-  local existing_venv="no"
-  local existing_db="no"
-  local existing_service="no"
+  local parts=()
+  [[ -d "$VENV_DIR" ]] && parts+=("venv")
 
-  [[ -d "$VENV_DIR" ]] && existing_venv="yes"
-
-  if [[ -n "$DB_NAME" ]]; then
-    local db_exists
-    db_exists=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}';" || echo "")
-    if [[ "$db_exists" == "1" ]]; then
-      existing_db="yes"
-      DB_ALREADY_EXISTS="yes"
-    fi
-  fi
+  local db_exists
+  db_exists=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}';" 2>/dev/null || echo "")
+  [[ "$db_exists" == "1" ]] && parts+=("DB")
 
   for svc in /etc/systemd/system/tattile-api.service /etc/systemd/system/tattile-ingest.service /etc/systemd/system/tattile-sender.service; do
-    if [[ -f "$svc" ]]; then
-      existing_service="yes"
-      break
-    fi
+    [[ -f "$svc" ]] && parts+=("systemd") && break
   done
 
-  if [[ "$existing_venv" == "yes" || "$existing_db" == "yes" || "$existing_service" == "yes" ]]; then
-    echo "Parece que ya hay una instalación existente de TattileSender (venv/DB/systemd detectados)."
-    echo "Este script está pensado para instalaciones nuevas. ¿Quieres continuar de todos modos? [y/N]"
-    read -r response
-    if [[ "${response:-N}" != "y" && "${response:-N}" != "Y" ]]; then
-      echo "Abortando a petición del usuario."
-      exit 0
-    fi
+  if [[ ${#parts[@]} -eq 0 ]]; then
+    echo "No detectada"
+  else
+    local unique_parts=($(printf "%s\n" "${parts[@]}" | awk '!seen[$0]++'))
+    echo "Detectada (${unique_parts[*]})"
   fi
-}
-
-install_system_dependencies() {
-  echo "Instalando dependencias del sistema..."
-  sudo apt update
-  sudo apt install -y python3 python3-venv python3-pip postgresql postgresql-contrib
 }
 
 setup_venv() {
   if [[ ! -d "$VENV_DIR" ]]; then
-    echo "Creando entorno virtual en $VENV_DIR..."
-    python3 -m venv "$VENV_DIR"
+    printf "→ Creando entorno virtual… "
+    if python3 -m venv "$VENV_DIR" > /dev/null 2>&1; then
+      echo "OK"
+    else
+      echo "FAILED"
+      exit 1
+    fi
   else
-    echo "Entorno virtual existente detectado, usando $VENV_DIR..."
+    echo "→ Usando entorno virtual existente"
   fi
-  # shellcheck source=/dev/null
-  source "$VENV_DIR/bin/activate"
-  echo "Actualizando pip e instalando dependencias Python..."
-  pip install --upgrade pip
-  pip install -r requirements.txt
+
+  check "Instalando dependencias Python" "source '$VENV_DIR/bin/activate' && pip install --upgrade pip > /dev/null 2>&1 && pip install -r requirements.txt > /dev/null 2>&1"
 }
 
-setup_postgres() {
-  echo "Configurando PostgreSQL..."
+install_system_dependencies() {
+  check "Instalando dependencias del sistema" "sudo apt-get update > /dev/null 2>&1 && sudo apt-get install -y python3 python3-venv python3-pip postgresql postgresql-contrib > /dev/null 2>&1"
+}
 
-  if [[ "$DB_ALREADY_EXISTS" == "yes" ]]; then
-    echo "La base de datos ${DB_NAME} ya existe. Omitiendo configuración de PostgreSQL."
+configure_postgres() {
+  echo -n "→ Configurando PostgreSQL… "
+
+  local db_exists
+  db_exists=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}';" 2>/dev/null || echo "")
+
+  if [[ "$db_exists" == "1" ]]; then
+    echo "Ya existe"
     return
   fi
 
-  sudo -u postgres psql <<EOF
+  if sudo -u postgres psql > /dev/null 2>&1 <<EOF
 DO
 \$do\$
 BEGIN
@@ -135,34 +120,16 @@ END
 CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};
 GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
 EOF
+  then
+    echo "Creada"
+  else
+    echo "FAILED"
+    exit 1
+  fi
 }
 
 run_migrations() {
-  echo "Ejecutando migraciones Alembic..."
-  # shellcheck source=/dev/null
-  source "$VENV_DIR/bin/activate"
-  python -m alembic upgrade head
-  echo "Migraciones Alembic completadas."
-}
-
-prompt_overwrite_service() {
-  local service_path="$1"
-  if [[ -f "$service_path" ]]; then
-    echo "Advertencia: ya existe ${service_path}. ¿Deseas sobrescribirlo? [y/N]"
-    read -r overwrite
-    if [[ "${overwrite:-N}" != "y" && "${overwrite:-N}" != "Y" ]]; then
-      echo "Conservando ${service_path} existente."
-      return 1
-    fi
-  fi
-  return 0
-}
-
-create_service_file() {
-  local service_path="$1"
-  local content="$2"
-  echo "Creando ${service_path}..."
-  echo "$content" | sudo tee "$service_path" > /dev/null
+  check "Ejecutando migraciones" "source '$VENV_DIR/bin/activate' && python -m alembic upgrade head > /dev/null 2>&1"
 }
 
 create_systemd_services() {
@@ -170,97 +137,100 @@ create_systemd_services() {
   local ingest_service="/etc/systemd/system/tattile-ingest.service"
   local sender_service="/etc/systemd/system/tattile-sender.service"
 
-  echo "Creando ${api_service}..."
-  sudo tee "$api_service" > /dev/null << 'EOF'
-[Unit]
+  local api_content="[Unit]
 Description=TattileSender - API HTTP
 After=network.target
 
 [Service]
-WorkingDirectory=/root/TattileSender
-EnvironmentFile=/root/TattileSender/.env
-ExecStart=/root/TattileSender/.venv/bin/uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$APP_DIR/.env
+ExecStart=$VENV_DIR/bin/uvicorn app.api.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 User=root
 Group=root
 
 [Install]
-WantedBy=multi-user.target
-EOF
+WantedBy=multi-user.target"
 
-  echo "Creando ${ingest_service}..."
-  sudo tee "$ingest_service" > /dev/null << 'EOF'
-[Unit]
+  local ingest_content="[Unit]
 Description=TattileSender - Ingest Service
 After=network.target
 
 [Service]
-WorkingDirectory=/root/TattileSender
-EnvironmentFile=/root/TattileSender/.env
-ExecStart=/root/TattileSender/.venv/bin/python -m app.ingest.main
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$APP_DIR/.env
+ExecStart=$VENV_DIR/bin/python -m app.ingest.main
 Restart=always
 RestartSec=5
 User=root
 Group=root
 
 [Install]
-WantedBy=multi-user.target
-EOF
+WantedBy=multi-user.target"
 
-  echo "Creando ${sender_service}..."
-  sudo tee "$sender_service" > /dev/null << 'EOF'
-[Unit]
+  local sender_content="[Unit]
 Description=TattileSender - Worker de envío a Mossos
 After=network.target
 
 [Service]
-WorkingDirectory=/root/TattileSender
-EnvironmentFile=/root/TattileSender/.env
-ExecStart=/root/TattileSender/.venv/bin/python -m app.sender.main
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$APP_DIR/.env
+ExecStart=$VENV_DIR/bin/python -m app.sender.main
 Restart=always
 RestartSec=5
 User=root
 Group=root
 
 [Install]
-WantedBy=multi-user.target
-EOF
+WantedBy=multi-user.target"
 
-  for svc in tattile-api tattile-ingest tattile-sender; do
-    if [ ! -s "/etc/systemd/system/${svc}.service" ]; then
-      echo "ERROR: /etc/systemd/system/${svc}.service no existe o está vacío"
-      exit 1
-    fi
-  done
+  printf "→ Instalando servicios systemd… "
+  if echo "$api_content" | sudo tee "$api_service" > /dev/null \
+    && echo "$ingest_content" | sudo tee "$ingest_service" > /dev/null \
+    && echo "$sender_content" | sudo tee "$sender_service" > /dev/null \
+    && sudo systemctl daemon-reload > /dev/null 2>&1 \
+    && sudo systemctl enable tattile-api.service tattile-ingest.service tattile-sender.service > /dev/null 2>&1; then
+    echo "OK"
+  else
+    echo "FAILED"
+    exit 1
+  fi
+}
 
-  echo "Recargando systemd y habilitando servicios..."
-  sudo systemctl daemon-reload
-  sudo systemctl enable tattile-api.service tattile-ingest.service tattile-sender.service
-  sudo systemctl status tattile-api.service --no-pager -l || true
-  sudo systemctl status tattile-ingest.service --no-pager -l || true
-  sudo systemctl status tattile-sender.service --no-pager -l || true
+start_service() {
+  local display_name="$1"
+  local service_name="$2"
+  if sudo systemctl restart "$service_name" > /dev/null 2>&1 && sudo systemctl is-active --quiet "$service_name"; then
+    echo "   ${display_name}: OK"
+  else
+    echo "✖ Error iniciando servicio ${display_name}" >&2
+    exit 1
+  fi
 }
 
 start_services() {
-  echo "Iniciando servicios..."
-  sudo systemctl start tattile-api.service tattile-ingest.service tattile-sender.service
-  sudo systemctl status tattile-api.service --no-pager -l || true
-  sudo systemctl status tattile-ingest.service --no-pager -l || true
-  sudo systemctl status tattile-sender.service --no-pager -l || true
+  echo "→ Iniciando servicios…"
+  start_service "API" "tattile-api.service"
+  start_service "Ingest" "tattile-ingest.service"
+  start_service "Sender" "tattile-sender.service"
 }
 
 main() {
-  check_project_root
+  ensure_project_root
   load_env_vars
-  check_existing_installation
+  describe_existing_installation
   install_system_dependencies
   setup_venv
-  setup_postgres
+  configure_postgres
   run_migrations
   create_systemd_services
   start_services
-  echo "Setup completado."
+
+  echo "\n✔ Setup completado correctamente"
+  echo "================================"
+  echo "TattileSender instalado"
+  echo "================================"
 }
 
 main "$@"
