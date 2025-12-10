@@ -36,6 +36,7 @@ DB_USER=""
 DB_PASSWORD=""
 DB_HOST=""
 DB_PORT=""
+DB_ALREADY_EXISTS="no"
 
 load_env_vars() {
   echo "Cargando variables desde .env..."
@@ -51,17 +52,9 @@ load_env_vars() {
   fi
 }
 
-# Ejecuta un comando psql como usuario postgres con los parámetros de host/puerto si existen.
 psql_command() {
   local query="$1"
-  local cmd=(sudo -u postgres psql -tAc "$query")
-  if [[ -n "${DB_HOST:-}" ]]; then
-    cmd+=("-h" "$DB_HOST")
-  fi
-  if [[ -n "${DB_PORT:-}" ]]; then
-    cmd+=("-p" "$DB_PORT")
-  fi
-  "${cmd[@]}"
+  sudo -u postgres psql -tAc "$query"
 }
 
 # Comprueba si ya existe una instalación previa.
@@ -72,8 +65,13 @@ check_existing_installation() {
 
   [[ -d "$VENV_DIR" ]] && existing_venv="yes"
 
-  if psql_command "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1; then
-    existing_db="yes"
+  if [[ -n "$DB_NAME" ]]; then
+    local db_exists
+    db_exists=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}';" || echo "")
+    if [[ "$db_exists" == "1" ]]; then
+      existing_db="yes"
+      DB_ALREADY_EXISTS="yes"
+    fi
   fi
 
   for svc in /etc/systemd/system/tattile-api.service /etc/systemd/system/tattile-ingest.service /etc/systemd/system/tattile-sender.service; do
@@ -84,7 +82,8 @@ check_existing_installation() {
   done
 
   if [[ "$existing_venv" == "yes" || "$existing_db" == "yes" || "$existing_service" == "yes" ]]; then
-    echo "Parece que ya hay una instalación existente de TattileSender (venv/DB/systemd detectados). Este script está pensado para instalaciones nuevas. ¿Quieres continuar de todos modos? [y/N]"
+    echo "Parece que ya hay una instalación existente de TattileSender (venv/DB/systemd detectados)."
+    echo "Este script está pensado para instalaciones nuevas. ¿Quieres continuar de todos modos? [y/N]"
     read -r response
     if [[ "${response:-N}" != "y" && "${response:-N}" != "Y" ]]; then
       echo "Abortando a petición del usuario."
@@ -116,23 +115,26 @@ setup_venv() {
 setup_postgres() {
   echo "Configurando PostgreSQL..."
 
-  if ! psql_command "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" | grep -q 1; then
-    echo "Creando usuario de base de datos ${DB_USER}..."
-    psql_command "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';"
-  else
-    echo "El usuario de base de datos ${DB_USER} ya existe."
+  if [[ "$DB_ALREADY_EXISTS" == "yes" ]]; then
+    echo "La base de datos ${DB_NAME} ya existe. Omitiendo configuración de PostgreSQL."
+    return
   fi
 
-  if ! psql_command "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1; then
-    echo "Creando base de datos ${DB_NAME}..."
-    psql_command "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
-  else
-    echo "La base de datos ${DB_NAME} ya existe."
-  fi
+  sudo -u postgres psql <<EOF
+DO
+\$do\$
+BEGIN
+   IF NOT EXISTS (
+      SELECT FROM pg_catalog.pg_roles WHERE rolname = '${DB_USER}'
+   ) THEN
+      CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASSWORD}';
+   END IF;
+END
+\$do\$;
 
-  echo "Garantizando privilegios de ${DB_USER} sobre ${DB_NAME}..."
-  psql_command "ALTER DATABASE ${DB_NAME} OWNER TO ${DB_USER};"
-  psql_command "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};"
+CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};
+GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
+EOF
 }
 
 run_migrations() {
