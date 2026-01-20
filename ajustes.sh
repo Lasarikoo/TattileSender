@@ -507,6 +507,12 @@ run_psql() {
     PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" "$@"
 }
 
+escape_sql_literal() {
+    local value="$1"
+    value=${value//\'/\'\'}
+    echo "$value"
+}
+
 ensure_db_env() {
     if [[ -z "$DB_NAME" || -z "$DB_USER" ]]; then
         echo "ERROR: Variables DB_NAME o DB_USER no cargadas."
@@ -533,7 +539,7 @@ consultar_registros_almacenados() {
     ensure_db_env || return
     local limit
     limit=$(get_limit_input "¿Cuántos registros quieres ver?" "20")
-    run_psql -v limit="$limit" -c "
+    run_psql -c "
 SELECT
     r.id,
     r.plate,
@@ -546,7 +552,7 @@ FROM alpr_readings r
 JOIN cameras c ON r.camera_id = c.id
 JOIN municipalities m ON c.municipality_id = m.id
 ORDER BY r.created_at DESC
-LIMIT :limit;"
+LIMIT $limit;"
     echo
     read -rp "Pulsa Enter para volver..." _
 }
@@ -557,11 +563,19 @@ consultar_registros_cola() {
     echo "Estados disponibles: PENDING, SENDING, SUCCESS, FAILED, DEAD, ALL"
     read -rp "Introduce el estado (o ALL para todos): " status
     status=${status:-ALL}
+    case "$status" in
+        PENDING|SENDING|SUCCESS|FAILED|DEAD|ALL)
+            ;;
+        *)
+            echo "Estado no válido, se usarán todos."
+            status="ALL"
+            ;;
+    esac
     local limit
     limit=$(get_limit_input "¿Cuántos registros quieres ver?" "20")
 
     if [[ "$status" == "ALL" ]]; then
-        run_psql -v limit="$limit" -c "
+        run_psql -c "
 SELECT
     q.id,
     q.status,
@@ -577,9 +591,9 @@ JOIN alpr_readings r ON q.reading_id = r.id
 JOIN cameras c ON r.camera_id = c.id
 JOIN municipalities m ON c.municipality_id = m.id
 ORDER BY q.updated_at DESC
-LIMIT :limit;"
+LIMIT $limit;"
     else
-        run_psql -v limit="$limit" -v status="$status" -c "
+        run_psql -c "
 SELECT
     q.id,
     q.status,
@@ -594,9 +608,9 @@ FROM messages_queue q
 JOIN alpr_readings r ON q.reading_id = r.id
 JOIN cameras c ON r.camera_id = c.id
 JOIN municipalities m ON c.municipality_id = m.id
-WHERE q.status = :'status'
+WHERE q.status = '$(escape_sql_literal "$status")'
 ORDER BY q.updated_at DESC
-LIMIT :limit;"
+LIMIT $limit;"
     fi
 
     echo
@@ -617,7 +631,7 @@ consultar_registros_por_camara() {
     local limit
     limit=$(get_limit_input "¿Cuántos registros quieres ver?" "20")
     if [[ "$camera_value" =~ ^[0-9]+$ ]]; then
-        run_psql -v limit="$limit" -v camera_id="$camera_value" -c "
+        run_psql -c "
 SELECT
     r.id,
     r.plate,
@@ -628,11 +642,11 @@ SELECT
 FROM alpr_readings r
 JOIN cameras c ON r.camera_id = c.id
 JOIN municipalities m ON c.municipality_id = m.id
-WHERE c.id = :'camera_id'
+WHERE c.id = $camera_value
 ORDER BY r.created_at DESC
-LIMIT :limit;"
+LIMIT $limit;"
     else
-        run_psql -v limit="$limit" -v camera_sn="$camera_value" -c "
+        run_psql -c "
 SELECT
     r.id,
     r.plate,
@@ -643,9 +657,9 @@ SELECT
 FROM alpr_readings r
 JOIN cameras c ON r.camera_id = c.id
 JOIN municipalities m ON c.municipality_id = m.id
-WHERE c.serial_number = :'camera_sn'
+WHERE c.serial_number = '$(escape_sql_literal "$camera_value")'
 ORDER BY r.created_at DESC
-LIMIT :limit;"
+LIMIT $limit;"
     fi
     echo
     read -rp "Pulsa Enter para volver..." _
@@ -665,7 +679,7 @@ consultar_registros_por_municipio() {
     local limit
     limit=$(get_limit_input "¿Cuántos registros quieres ver?" "20")
     if [[ "$mun_value" =~ ^[0-9]+$ ]]; then
-        run_psql -v limit="$limit" -v mun_id="$mun_value" -c "
+        run_psql -c "
 SELECT
     r.id,
     r.plate,
@@ -676,11 +690,11 @@ SELECT
 FROM alpr_readings r
 JOIN cameras c ON r.camera_id = c.id
 JOIN municipalities m ON c.municipality_id = m.id
-WHERE m.id = :'mun_id'
+WHERE m.id = $mun_value
 ORDER BY r.created_at DESC
-LIMIT :limit;"
+LIMIT $limit;"
     else
-        run_psql -v limit="$limit" -v mun_name="$mun_value" -c "
+        run_psql -c "
 SELECT
     r.id,
     r.plate,
@@ -691,9 +705,9 @@ SELECT
 FROM alpr_readings r
 JOIN cameras c ON r.camera_id = c.id
 JOIN municipalities m ON c.municipality_id = m.id
-WHERE m.name ILIKE '%' || :'mun_name' || '%'
+WHERE m.name ILIKE '%' || '$(escape_sql_literal "$mun_value")' || '%'
 ORDER BY r.created_at DESC
-LIMIT :limit;"
+LIMIT $limit;"
     fi
     echo
     read -rp "Pulsa Enter para volver..." _
@@ -704,7 +718,7 @@ consultar_registros_con_fallos() {
     ensure_db_env || return
     local limit
     limit=$(get_limit_input "¿Cuántos registros quieres ver?" "20")
-    run_psql -v limit="$limit" -c "
+    run_psql -c "
 SELECT
     q.id,
     q.status,
@@ -720,7 +734,7 @@ JOIN cameras c ON r.camera_id = c.id
 JOIN municipalities m ON c.municipality_id = m.id
 WHERE q.status IN ('FAILED', 'DEAD') OR q.last_error IS NOT NULL
 ORDER BY q.updated_at DESC
-LIMIT :limit;"
+LIMIT $limit;"
     echo
     read -rp "Pulsa Enter para volver..." _
 }
@@ -737,7 +751,7 @@ consultar_ultimo_envio_camara() {
         return
     fi
     if [[ "$camera_value" =~ ^[0-9]+$ ]]; then
-        run_psql -v camera_id="$camera_value" -c "
+        run_psql -c "
 SELECT
     c.id,
     c.serial_number,
@@ -745,10 +759,10 @@ SELECT
 FROM cameras c
 LEFT JOIN alpr_readings r ON r.camera_id = c.id
 LEFT JOIN messages_queue q ON q.reading_id = r.id
-WHERE c.id = :'camera_id'
+WHERE c.id = $camera_value
 GROUP BY c.id, c.serial_number;"
     else
-        run_psql -v camera_sn="$camera_value" -c "
+        run_psql -c "
 SELECT
     c.id,
     c.serial_number,
@@ -756,7 +770,7 @@ SELECT
 FROM cameras c
 LEFT JOIN alpr_readings r ON r.camera_id = c.id
 LEFT JOIN messages_queue q ON q.reading_id = r.id
-WHERE c.serial_number = :'camera_sn'
+WHERE c.serial_number = '$(escape_sql_literal "$camera_value")'
 GROUP BY c.id, c.serial_number;"
     fi
     echo
