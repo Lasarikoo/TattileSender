@@ -11,30 +11,19 @@ if [ -f "$PROJECT_DIR/.env" ]; then
 fi
 
 list_cameras() {
-    python - <<'PY'
-from app.models import Camera, SessionLocal
-
-
-def main():
-    session = SessionLocal()
-    try:
-        cameras = session.query(Camera).order_by(Camera.id).all()
-        if not cameras:
-            print("No hay cámaras registradas.")
-            return
-        print("Cámaras disponibles:")
-        for cam in cameras:
-            print(
-                f"- {cam.id}: {cam.serial_number} "
-                f"(municipio_id={cam.municipality_id}, endpoint_id={cam.endpoint_id}, cert_id={cam.certificate_id})"
-            )
-    finally:
-        session.close()
-
-
-if __name__ == "__main__":
-    main()
-PY
+    ensure_db_env || return
+    local cameras
+    cameras=$(run_psql -t -A -F '|' -c \
+        "SELECT id, serial_number, municipality_id, endpoint_id, certificate_id FROM cameras ORDER BY id;")
+    if [[ -z "$cameras" ]]; then
+        echo "No hay cámaras registradas."
+        return
+    fi
+    echo "Cámaras disponibles:"
+    while IFS='|' read -r id serial_number municipality_id endpoint_id certificate_id; do
+        printf -- "- %s: %s (municipio_id=%s, endpoint_id=%s, cert_id=%s)\n" \
+            "$id" "$serial_number" "$municipality_id" "$endpoint_id" "$certificate_id"
+    done <<< "$cameras"
 }
 
 list_municipalities() {
@@ -531,6 +520,19 @@ ensure_db_env() {
     return 0
 }
 
+ensure_camera_last_sent_column() {
+    local has_column
+    has_column=$(run_psql -t -A -c \
+        "SELECT 1 FROM information_schema.columns WHERE table_name='cameras' AND column_name='last_sent_at';")
+    if [[ "$has_column" != "1" ]]; then
+        echo "La columna cameras.last_sent_at no existe en la base de datos."
+        echo "Ejecuta las migraciones (alembic upgrade head) para habilitar esta consulta."
+        read -rp "Pulsa Enter para volver..." _
+        return 1
+    fi
+    return 0
+}
+
 get_limit_input() {
     local prompt="$1"
     local default_limit="$2"
@@ -754,6 +756,7 @@ LIMIT $limit;"
 consultar_ultimo_envio_camara() {
     clear
     ensure_db_env || return
+    ensure_camera_last_sent_column || return
     list_cameras
     echo
     read -rp "Introduce el ID o número de serie de la cámara: " camera_value
