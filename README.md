@@ -47,6 +47,7 @@ Variables principales:
 - `CERTS_DIR`: ruta de certificados PEM (por defecto `/etc/tattile_sender/certs`).
 - `LOG_LEVEL`: `INFO` o `DEBUG`.
 - Opciones `SENDER_*`: controlan worker de envío (`SENDER_ENABLED`, `SENDER_POLL_INTERVAL_SECONDS`, `SENDER_MAX_BATCH_SIZE`, `SENDER_DEFAULT_RETRY_MAX`, `SENDER_DEFAULT_BACKOFF_MS`).
+  - `SENDER_STUCK_TIMEOUT_SECONDS`: tiempo máximo en `SENDING` antes de reintentar automáticamente (por defecto 300s).
 
 Ejemplo completo:
 ```env
@@ -65,6 +66,7 @@ SENDER_POLL_INTERVAL_SECONDS=5
 SENDER_MAX_BATCH_SIZE=50
 SENDER_DEFAULT_RETRY_MAX=3
 SENDER_DEFAULT_BACKOFF_MS=1000
+SENDER_STUCK_TIMEOUT_SECONDS=300
 ```
 
 ## 5️⃣ Ejecución de `setup.sh`
