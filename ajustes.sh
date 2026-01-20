@@ -936,6 +936,28 @@ ver_logs_tiempo_real() {
     done
 }
 
+migrar_base_datos() {
+    clear
+    read -rp "Se aplicarán las migraciones de base de datos (alembic upgrade head). ¿Continuar? [s/N]: " confirm
+    if [[ "$confirm" != "s" && "$confirm" != "S" ]]; then
+        echo "Operación cancelada."
+        read -rp "Pulsa Enter para volver al menú de utilidades..." _
+        return
+    fi
+
+    echo "Ejecutando migraciones..."
+    alembic upgrade head
+    local status=$?
+
+    echo
+    if [[ $status -ne 0 ]]; then
+        echo "La actualización de la base de datos falló."
+    else
+        echo "Base de datos actualizada a la última versión."
+    fi
+    read -rp "Pulsa Enter para volver al menú de utilidades..." _
+}
+
 menu_utilidades_sistema() {
     while true; do
         clear
@@ -945,7 +967,8 @@ menu_utilidades_sistema() {
         echo "3) Consultas y búsquedas en base de datos"
         echo "4) Reiniciar todos los servicios TattileSender"
         echo "5) Ver logs en tiempo real de servicios"
-        echo "6) Volver al menú principal"
+        echo "6) Migrar/actualizar base de datos"
+        echo "7) Volver al menú principal"
         read -rp "Selecciona una opción: " opt
         case "$opt" in
             1)
@@ -964,6 +987,9 @@ menu_utilidades_sistema() {
                 ver_logs_tiempo_real
                 ;;
             6)
+                migrar_base_datos
+                ;;
+            7)
                 clear
                 break
                 ;;
