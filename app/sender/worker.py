@@ -280,7 +280,9 @@ def process_message(session: Session, message: MessageQueue) -> None:
         message.last_error = None
         message.last_sent_at = now
         message.sent_at = now
+        camera.last_sent_at = now
         session.add(message)
+        session.add(camera)
         session.flush()
         _delete_success_records(session, message)
         logger.info("[SENDER] Lectura (%s) enviada correctamente a Mossos", plate)
