@@ -507,6 +507,15 @@ run_psql() {
     PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" "$@"
 }
 
+sanitize_utf8() {
+    local value="$1"
+    if command -v iconv >/dev/null 2>&1; then
+        printf '%s' "$value" | iconv -f UTF-8 -t UTF-8//IGNORE 2>/dev/null
+        return
+    fi
+    printf '%s' "$value"
+}
+
 escape_sql_literal() {
     local value="$1"
     value=${value//\'/\'\'}
@@ -563,6 +572,7 @@ consultar_registros_cola() {
     echo "Estados disponibles: PENDING, SENDING, SUCCESS, FAILED, DEAD, ALL"
     read -rp "Introduce el estado (o ALL para todos): " status
     status=${status:-ALL}
+    status=$(sanitize_utf8 "$status")
     case "$status" in
         PENDING|SENDING|SUCCESS|FAILED|DEAD|ALL)
             ;;
@@ -623,6 +633,7 @@ consultar_registros_por_camara() {
     list_cameras
     echo
     read -rp "Introduce el ID o número de serie de la cámara: " camera_value
+    camera_value=$(sanitize_utf8 "$camera_value")
     if [[ -z "$camera_value" ]]; then
         echo "Cámara no indicada."
         read -rp "Pulsa Enter para volver..." _
@@ -671,6 +682,7 @@ consultar_registros_por_municipio() {
     list_municipalities
     echo
     read -rp "Introduce el ID o nombre del municipio: " mun_value
+    mun_value=$(sanitize_utf8 "$mun_value")
     if [[ -z "$mun_value" ]]; then
         echo "Municipio no indicado."
         read -rp "Pulsa Enter para volver..." _
@@ -745,6 +757,7 @@ consultar_ultimo_envio_camara() {
     list_cameras
     echo
     read -rp "Introduce el ID o número de serie de la cámara: " camera_value
+    camera_value=$(sanitize_utf8 "$camera_value")
     if [[ -z "$camera_value" ]]; then
         echo "Cámara no indicada."
         read -rp "Pulsa Enter para volver..." _
