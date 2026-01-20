@@ -768,23 +768,37 @@ consultar_ultimo_envio_camara() {
 SELECT
     c.id,
     c.serial_number,
-    MAX(COALESCE(q.last_sent_at, q.sent_at)) AS last_sent_at
+    COALESCE(
+        GREATEST(
+            c.last_sent_at,
+            MAX(COALESCE(q.last_sent_at, q.sent_at))
+        ),
+        c.last_sent_at,
+        MAX(COALESCE(q.last_sent_at, q.sent_at))
+    ) AS last_sent_at
 FROM cameras c
 LEFT JOIN alpr_readings r ON r.camera_id = c.id
 LEFT JOIN messages_queue q ON q.reading_id = r.id
 WHERE c.id = $camera_value
-GROUP BY c.id, c.serial_number;"
+GROUP BY c.id, c.serial_number, c.last_sent_at;"
     else
         run_psql -c "
 SELECT
     c.id,
     c.serial_number,
-    MAX(COALESCE(q.last_sent_at, q.sent_at)) AS last_sent_at
+    COALESCE(
+        GREATEST(
+            c.last_sent_at,
+            MAX(COALESCE(q.last_sent_at, q.sent_at))
+        ),
+        c.last_sent_at,
+        MAX(COALESCE(q.last_sent_at, q.sent_at))
+    ) AS last_sent_at
 FROM cameras c
 LEFT JOIN alpr_readings r ON r.camera_id = c.id
 LEFT JOIN messages_queue q ON q.reading_id = r.id
 WHERE c.serial_number = '$(escape_sql_literal "$camera_value")'
-GROUP BY c.id, c.serial_number;"
+GROUP BY c.id, c.serial_number, c.last_sent_at;"
     fi
     echo
     read -rp "Pulsa Enter para volver..." _
