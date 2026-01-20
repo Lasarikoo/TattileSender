@@ -11,30 +11,26 @@ if [ -f "$PROJECT_DIR/.env" ]; then
 fi
 
 list_cameras() {
-    python - <<'PY'
-from app.models import Camera, SessionLocal
-
-
-def main():
-    session = SessionLocal()
-    try:
-        cameras = session.query(Camera).order_by(Camera.id).all()
-        if not cameras:
-            print("No hay cámaras registradas.")
-            return
-        print("Cámaras disponibles:")
-        for cam in cameras:
-            print(
-                f"- {cam.id}: {cam.serial_number} "
-                f"(municipio_id={cam.municipality_id}, endpoint_id={cam.endpoint_id}, cert_id={cam.certificate_id})"
-            )
-    finally:
-        session.close()
-
-
-if __name__ == "__main__":
-    main()
-PY
+    ensure_db_env || return
+    local rows
+    rows=$(run_psql -At -c "
+SELECT
+    id,
+    serial_number,
+    municipality_id,
+    endpoint_id,
+    certificate_id
+FROM cameras
+ORDER BY id;")
+    if [[ -z "$rows" ]]; then
+        echo "No hay cámaras registradas."
+        return
+    fi
+    echo "Cámaras disponibles:"
+    while IFS=$'\t' read -r cam_id serial_number municipality_id endpoint_id certificate_id; do
+        printf -- "- %s: %s (municipio_id=%s, endpoint_id=%s, cert_id=%s)\n" \
+            "$cam_id" "$serial_number" "$municipality_id" "$endpoint_id" "$certificate_id"
+    done <<<"$rows"
 }
 
 list_municipalities() {
@@ -768,23 +764,37 @@ consultar_ultimo_envio_camara() {
 SELECT
     c.id,
     c.serial_number,
-    MAX(COALESCE(q.last_sent_at, q.sent_at)) AS last_sent_at
+    COALESCE(
+        GREATEST(
+            c.last_sent_at,
+            MAX(COALESCE(q.last_sent_at, q.sent_at))
+        ),
+        c.last_sent_at,
+        MAX(COALESCE(q.last_sent_at, q.sent_at))
+    ) AS last_sent_at
 FROM cameras c
 LEFT JOIN alpr_readings r ON r.camera_id = c.id
 LEFT JOIN messages_queue q ON q.reading_id = r.id
 WHERE c.id = $camera_value
-GROUP BY c.id, c.serial_number;"
+GROUP BY c.id, c.serial_number, c.last_sent_at;"
     else
         run_psql -c "
 SELECT
     c.id,
     c.serial_number,
-    MAX(COALESCE(q.last_sent_at, q.sent_at)) AS last_sent_at
+    COALESCE(
+        GREATEST(
+            c.last_sent_at,
+            MAX(COALESCE(q.last_sent_at, q.sent_at))
+        ),
+        c.last_sent_at,
+        MAX(COALESCE(q.last_sent_at, q.sent_at))
+    ) AS last_sent_at
 FROM cameras c
 LEFT JOIN alpr_readings r ON r.camera_id = c.id
 LEFT JOIN messages_queue q ON q.reading_id = r.id
 WHERE c.serial_number = '$(escape_sql_literal "$camera_value")'
-GROUP BY c.id, c.serial_number;"
+GROUP BY c.id, c.serial_number, c.last_sent_at;"
     fi
     echo
     read -rp "Pulsa Enter para volver..." _

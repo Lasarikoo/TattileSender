@@ -127,7 +127,8 @@ def _delete_success_records(session: Session, message: MessageQueue) -> None:
 
 
 def process_message(session: Session, message: MessageQueue) -> None:
-    now = datetime.now(timezone.utc)
+    utc_now = datetime.now(timezone.utc)
+    local_now = datetime.now().astimezone()
     reading = message.reading
     camera = reading.camera if reading else None
     municipality: Municipality | None = camera.municipality if camera else None
@@ -184,7 +185,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
         _mark_dead(session, message, "MAX_REINTENTOS_AGOTADOS")
         return
 
-    if _should_skip_retry(message, now):
+    if _should_skip_retry(message, utc_now):
         logger.debug(
             "[SENDER][DEBUG] Mensaje %s pospuesto hasta %s por backoff", message.id, message.next_retry_at
         )
@@ -278,9 +279,11 @@ def process_message(session: Session, message: MessageQueue) -> None:
     if result.success:
         message.status = MessageStatus.SUCCESS
         message.last_error = None
-        message.last_sent_at = now
-        message.sent_at = now
+        message.last_sent_at = local_now
+        message.sent_at = local_now
+        camera.last_sent_at = local_now
         session.add(message)
+        session.add(camera)
         session.flush()
         _delete_success_records(session, message)
         logger.info("[SENDER] Lectura (%s) enviada correctamente a Mossos", plate)
@@ -310,7 +313,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
         logger.error("[SENDER] Lectura (%s) descartada por %s", plate, error_msg)
     else:
         message.status = MessageStatus.FAILED
-        message.next_retry_at = now + timedelta(milliseconds=backoff_ms)
+        message.next_retry_at = utc_now + timedelta(milliseconds=backoff_ms)
         logger.warning("[SENDER] Error enviando lectura (%s): %s", plate, error_msg)
 
     session.add(message)
