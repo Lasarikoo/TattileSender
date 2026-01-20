@@ -126,6 +126,9 @@ class Camera(Base):
         Integer, ForeignKey("certificates.id"), nullable=True
     )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_sent_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     coord_x: Mapped[str | None] = mapped_column(
         String(32), nullable=True, comment="Coordenada X UTM31N-ETRS89 con dos decimales"
