@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     sender_max_batch_size: int = Field(50, env="SENDER_MAX_BATCH_SIZE")
     sender_default_retry_max: int = Field(3, env="SENDER_DEFAULT_RETRY_MAX")
     sender_default_backoff_ms: int = Field(1000, env="SENDER_DEFAULT_BACKOFF_MS")
+    sender_stuck_timeout_seconds: int = Field(300, env="SENDER_STUCK_TIMEOUT_SECONDS")
     MOSSOS_WSDL_URL: str = Field(
         "https://anpr.dgp.interior.extranet.gencat.cat/matr-ws/matricules.wsdl",
         env="MOSSOS_WSDL_URL",
