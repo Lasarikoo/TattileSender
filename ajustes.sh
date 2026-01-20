@@ -527,6 +527,19 @@ ensure_db_env() {
     return 0
 }
 
+ensure_camera_last_sent_column() {
+    local has_column
+    has_column=$(run_psql -t -A -c \
+        "SELECT 1 FROM information_schema.columns WHERE table_name='cameras' AND column_name='last_sent_at';")
+    if [[ "$has_column" != "1" ]]; then
+        echo "La columna cameras.last_sent_at no existe en la base de datos."
+        echo "Ejecuta las migraciones (alembic upgrade head) para habilitar esta consulta."
+        read -rp "Pulsa Enter para volver..." _
+        return 1
+    fi
+    return 0
+}
+
 get_limit_input() {
     local prompt="$1"
     local default_limit="$2"
@@ -750,6 +763,7 @@ LIMIT $limit;"
 consultar_ultimo_envio_camara() {
     clear
     ensure_db_env || return
+    ensure_camera_last_sent_column || return
     list_cameras
     echo
     read -rp "Introduce el ID o número de serie de la cámara: " camera_value
@@ -929,6 +943,28 @@ ver_logs_tiempo_real() {
     done
 }
 
+migrar_base_datos() {
+    clear
+    read -rp "Se aplicarán las migraciones de base de datos (alembic upgrade head). ¿Continuar? [s/N]: " confirm
+    if [[ "$confirm" != "s" && "$confirm" != "S" ]]; then
+        echo "Operación cancelada."
+        read -rp "Pulsa Enter para volver al menú de utilidades..." _
+        return
+    fi
+
+    echo "Ejecutando migraciones..."
+    alembic upgrade head
+    local status=$?
+
+    echo
+    if [[ $status -ne 0 ]]; then
+        echo "La actualización de la base de datos falló."
+    else
+        echo "Base de datos actualizada a la última versión."
+    fi
+    read -rp "Pulsa Enter para volver al menú de utilidades..." _
+}
+
 menu_utilidades_sistema() {
     while true; do
         clear
@@ -938,7 +974,8 @@ menu_utilidades_sistema() {
         echo "3) Consultas y búsquedas en base de datos"
         echo "4) Reiniciar todos los servicios TattileSender"
         echo "5) Ver logs en tiempo real de servicios"
-        echo "6) Volver al menú principal"
+        echo "6) Migrar/actualizar base de datos"
+        echo "7) Volver al menú principal"
         read -rp "Selecciona una opción: " opt
         case "$opt" in
             1)
@@ -957,6 +994,9 @@ menu_utilidades_sistema() {
                 ver_logs_tiempo_real
                 ;;
             6)
+                migrar_base_datos
+                ;;
+            7)
                 clear
                 break
                 ;;

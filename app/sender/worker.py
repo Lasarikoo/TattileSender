@@ -59,6 +59,34 @@ def _load_candidates(session: Session, batch_size: int) -> Iterable[MessageQueue
     return query.all()
 
 
+def _recover_stuck_sending(session: Session, now: datetime) -> int:
+    timeout_seconds = max(settings.sender_stuck_timeout_seconds, 1)
+    threshold = now - timedelta(seconds=timeout_seconds)
+    stuck_messages = (
+        session.query(MessageQueue)
+        .filter(MessageQueue.status == MessageStatus.SENDING)
+        .filter(MessageQueue.updated_at <= threshold)
+        .all()
+    )
+    if not stuck_messages:
+        return 0
+
+    for message in stuck_messages:
+        message.status = MessageStatus.FAILED
+        message.next_retry_at = None
+        message.last_error = "SENDING_TIMEOUT_RECOVERED"
+        message.updated_at = now
+        session.add(message)
+
+    session.commit()
+    logger.warning(
+        "[SENDER] Recuperados %s mensajes en SENDING atascados (> %ss)",
+        len(stuck_messages),
+        timeout_seconds,
+    )
+    return len(stuck_messages)
+
+
 def _should_skip_retry(message: MessageQueue, now: datetime) -> bool:
     return message.next_retry_at is not None and message.next_retry_at > now
 
@@ -333,9 +361,14 @@ def run_sender_iteration() -> int:
     iteration_started = time.monotonic()
     logger.debug("[SENDER][DEBUG] Buscando mensajes pendientes (límite=%s)", batch_size)
     try:
+        now = datetime.now(timezone.utc)
+        recovered = _recover_stuck_sending(session, now)
+        if recovered:
+            logger.debug(
+                "[SENDER][DEBUG] Mensajes recuperados de SENDING: %s", recovered
+            )
         candidates = _load_candidates(session, batch_size)
         logger.debug("[SENDER][DEBUG] %s mensajes pendientes cargados para envío", len(candidates))
-        now = datetime.now(timezone.utc)
         for message in candidates:
             logger.debug(
                 "[SENDER][DEBUG] Procesando mensaje %s creado en %s", message.id, message.created_at
