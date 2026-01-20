@@ -503,6 +503,308 @@ SQL
     read -rp "Pulsa Enter para volver al menú de utilidades..." _
 }
 
+run_psql() {
+    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" "$@"
+}
+
+ensure_db_env() {
+    if [[ -z "$DB_NAME" || -z "$DB_USER" ]]; then
+        echo "ERROR: Variables DB_NAME o DB_USER no cargadas."
+        read -rp "Pulsa Enter para volver..." _
+        return 1
+    fi
+    return 0
+}
+
+get_limit_input() {
+    local prompt="$1"
+    local default_limit="$2"
+    local limit
+    read -rp "$prompt [$default_limit]: " limit
+    limit=${limit:-$default_limit}
+    if ! [[ "$limit" =~ ^[0-9]+$ ]]; then
+        limit="$default_limit"
+    fi
+    echo "$limit"
+}
+
+consultar_registros_almacenados() {
+    clear
+    ensure_db_env || return
+    local limit
+    limit=$(get_limit_input "¿Cuántos registros quieres ver?" "20")
+    run_psql -v limit="$limit" -c "
+SELECT
+    r.id,
+    r.plate,
+    r.timestamp_utc,
+    r.created_at,
+    c.id AS camera_id,
+    c.serial_number,
+    m.name AS municipality
+FROM alpr_readings r
+JOIN cameras c ON r.camera_id = c.id
+JOIN municipalities m ON c.municipality_id = m.id
+ORDER BY r.created_at DESC
+LIMIT :limit;"
+    echo
+    read -rp "Pulsa Enter para volver..." _
+}
+
+consultar_registros_cola() {
+    clear
+    ensure_db_env || return
+    echo "Estados disponibles: PENDING, SENDING, SUCCESS, FAILED, DEAD, ALL"
+    read -rp "Introduce el estado (o ALL para todos): " status
+    status=${status:-ALL}
+    local limit
+    limit=$(get_limit_input "¿Cuántos registros quieres ver?" "20")
+
+    if [[ "$status" == "ALL" ]]; then
+        run_psql -v limit="$limit" -c "
+SELECT
+    q.id,
+    q.status,
+    q.attempts,
+    q.created_at,
+    q.updated_at,
+    q.last_error,
+    r.plate,
+    c.serial_number,
+    m.name AS municipality
+FROM messages_queue q
+JOIN alpr_readings r ON q.reading_id = r.id
+JOIN cameras c ON r.camera_id = c.id
+JOIN municipalities m ON c.municipality_id = m.id
+ORDER BY q.updated_at DESC
+LIMIT :limit;"
+    else
+        run_psql -v limit="$limit" -v status="$status" -c "
+SELECT
+    q.id,
+    q.status,
+    q.attempts,
+    q.created_at,
+    q.updated_at,
+    q.last_error,
+    r.plate,
+    c.serial_number,
+    m.name AS municipality
+FROM messages_queue q
+JOIN alpr_readings r ON q.reading_id = r.id
+JOIN cameras c ON r.camera_id = c.id
+JOIN municipalities m ON c.municipality_id = m.id
+WHERE q.status = :'status'
+ORDER BY q.updated_at DESC
+LIMIT :limit;"
+    fi
+
+    echo
+    read -rp "Pulsa Enter para volver..." _
+}
+
+consultar_registros_por_camara() {
+    clear
+    ensure_db_env || return
+    list_cameras
+    echo
+    read -rp "Introduce el ID o número de serie de la cámara: " camera_value
+    if [[ -z "$camera_value" ]]; then
+        echo "Cámara no indicada."
+        read -rp "Pulsa Enter para volver..." _
+        return
+    fi
+    local limit
+    limit=$(get_limit_input "¿Cuántos registros quieres ver?" "20")
+    if [[ "$camera_value" =~ ^[0-9]+$ ]]; then
+        run_psql -v limit="$limit" -v camera_id="$camera_value" -c "
+SELECT
+    r.id,
+    r.plate,
+    r.timestamp_utc,
+    r.created_at,
+    c.serial_number,
+    m.name AS municipality
+FROM alpr_readings r
+JOIN cameras c ON r.camera_id = c.id
+JOIN municipalities m ON c.municipality_id = m.id
+WHERE c.id = :'camera_id'
+ORDER BY r.created_at DESC
+LIMIT :limit;"
+    else
+        run_psql -v limit="$limit" -v camera_sn="$camera_value" -c "
+SELECT
+    r.id,
+    r.plate,
+    r.timestamp_utc,
+    r.created_at,
+    c.serial_number,
+    m.name AS municipality
+FROM alpr_readings r
+JOIN cameras c ON r.camera_id = c.id
+JOIN municipalities m ON c.municipality_id = m.id
+WHERE c.serial_number = :'camera_sn'
+ORDER BY r.created_at DESC
+LIMIT :limit;"
+    fi
+    echo
+    read -rp "Pulsa Enter para volver..." _
+}
+
+consultar_registros_por_municipio() {
+    clear
+    ensure_db_env || return
+    list_municipalities
+    echo
+    read -rp "Introduce el ID o nombre del municipio: " mun_value
+    if [[ -z "$mun_value" ]]; then
+        echo "Municipio no indicado."
+        read -rp "Pulsa Enter para volver..." _
+        return
+    fi
+    local limit
+    limit=$(get_limit_input "¿Cuántos registros quieres ver?" "20")
+    if [[ "$mun_value" =~ ^[0-9]+$ ]]; then
+        run_psql -v limit="$limit" -v mun_id="$mun_value" -c "
+SELECT
+    r.id,
+    r.plate,
+    r.timestamp_utc,
+    r.created_at,
+    c.serial_number,
+    m.name AS municipality
+FROM alpr_readings r
+JOIN cameras c ON r.camera_id = c.id
+JOIN municipalities m ON c.municipality_id = m.id
+WHERE m.id = :'mun_id'
+ORDER BY r.created_at DESC
+LIMIT :limit;"
+    else
+        run_psql -v limit="$limit" -v mun_name="$mun_value" -c "
+SELECT
+    r.id,
+    r.plate,
+    r.timestamp_utc,
+    r.created_at,
+    c.serial_number,
+    m.name AS municipality
+FROM alpr_readings r
+JOIN cameras c ON r.camera_id = c.id
+JOIN municipalities m ON c.municipality_id = m.id
+WHERE m.name ILIKE '%' || :'mun_name' || '%'
+ORDER BY r.created_at DESC
+LIMIT :limit;"
+    fi
+    echo
+    read -rp "Pulsa Enter para volver..." _
+}
+
+consultar_registros_con_fallos() {
+    clear
+    ensure_db_env || return
+    local limit
+    limit=$(get_limit_input "¿Cuántos registros quieres ver?" "20")
+    run_psql -v limit="$limit" -c "
+SELECT
+    q.id,
+    q.status,
+    q.attempts,
+    q.updated_at,
+    q.last_error,
+    r.plate,
+    c.serial_number,
+    m.name AS municipality
+FROM messages_queue q
+JOIN alpr_readings r ON q.reading_id = r.id
+JOIN cameras c ON r.camera_id = c.id
+JOIN municipalities m ON c.municipality_id = m.id
+WHERE q.status IN ('FAILED', 'DEAD') OR q.last_error IS NOT NULL
+ORDER BY q.updated_at DESC
+LIMIT :limit;"
+    echo
+    read -rp "Pulsa Enter para volver..." _
+}
+
+consultar_ultimo_envio_camara() {
+    clear
+    ensure_db_env || return
+    list_cameras
+    echo
+    read -rp "Introduce el ID o número de serie de la cámara: " camera_value
+    if [[ -z "$camera_value" ]]; then
+        echo "Cámara no indicada."
+        read -rp "Pulsa Enter para volver..." _
+        return
+    fi
+    if [[ "$camera_value" =~ ^[0-9]+$ ]]; then
+        run_psql -v camera_id="$camera_value" -c "
+SELECT
+    c.id,
+    c.serial_number,
+    MAX(COALESCE(q.last_sent_at, q.sent_at)) AS last_sent_at
+FROM cameras c
+LEFT JOIN alpr_readings r ON r.camera_id = c.id
+LEFT JOIN messages_queue q ON q.reading_id = r.id
+WHERE c.id = :'camera_id'
+GROUP BY c.id, c.serial_number;"
+    else
+        run_psql -v camera_sn="$camera_value" -c "
+SELECT
+    c.id,
+    c.serial_number,
+    MAX(COALESCE(q.last_sent_at, q.sent_at)) AS last_sent_at
+FROM cameras c
+LEFT JOIN alpr_readings r ON r.camera_id = c.id
+LEFT JOIN messages_queue q ON q.reading_id = r.id
+WHERE c.serial_number = :'camera_sn'
+GROUP BY c.id, c.serial_number;"
+    fi
+    echo
+    read -rp "Pulsa Enter para volver..." _
+}
+
+menu_consultas_bd() {
+    while true; do
+        clear
+        echo "=== CONSULTAS DE BASE DE DATOS ==="
+        echo "1) Ver registros almacenados"
+        echo "2) Ver registros en cola"
+        echo "3) Ver registros por cámara"
+        echo "4) Ver registros por municipio"
+        echo "5) Ver registros con warnings o fallos"
+        echo "6) Ver último envío por cámara"
+        echo "7) Volver al menú de utilidades"
+        read -rp "Selecciona una opción: " opt
+        case "$opt" in
+            1)
+                consultar_registros_almacenados
+                ;;
+            2)
+                consultar_registros_cola
+                ;;
+            3)
+                consultar_registros_por_camara
+                ;;
+            4)
+                consultar_registros_por_municipio
+                ;;
+            5)
+                consultar_registros_con_fallos
+                ;;
+            6)
+                consultar_ultimo_envio_camara
+                ;;
+            7)
+                break
+                ;;
+            *)
+                echo "Opción no válida"
+                read -rp "Pulsa ENTER para continuar..." _
+                ;;
+        esac
+    done
+}
+
 reiniciar_servicios_tattile() {
     clear
     read -rp "Esto reiniciará tattile-api, tattile-ingest y tattile-sender. ¿Quieres continuar? [y/N] " confirm
@@ -596,9 +898,10 @@ menu_utilidades_sistema() {
         echo "=== UTILIDADES DEL SISTEMA ==="
         echo "1) Ver uso del sistema y recursos"
         echo "2) Ver total de datos en base de datos"
-        echo "3) Reiniciar todos los servicios TattileSender"
-        echo "4) Ver logs en tiempo real de servicios"
-        echo "5) Volver al menú principal"
+        echo "3) Consultas y búsquedas en base de datos"
+        echo "4) Reiniciar todos los servicios TattileSender"
+        echo "5) Ver logs en tiempo real de servicios"
+        echo "6) Volver al menú principal"
         read -rp "Selecciona una opción: " opt
         case "$opt" in
             1)
@@ -608,12 +911,15 @@ menu_utilidades_sistema() {
                 mostrar_estadisticas_bd
                 ;;
             3)
-                reiniciar_servicios_tattile
+                menu_consultas_bd
                 ;;
             4)
-                ver_logs_tiempo_real
+                reiniciar_servicios_tattile
                 ;;
             5)
+                ver_logs_tiempo_real
+                ;;
+            6)
                 clear
                 break
                 ;;
