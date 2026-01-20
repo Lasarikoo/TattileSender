@@ -12,18 +12,25 @@ fi
 
 list_cameras() {
     ensure_db_env || return
-    local cameras
-    cameras=$(run_psql -t -A -F '|' -c \
-        "SELECT id, serial_number, municipality_id, endpoint_id, certificate_id FROM cameras ORDER BY id;")
-    if [[ -z "$cameras" ]]; then
+    local rows
+    rows=$(run_psql -At -c "
+SELECT
+    id,
+    serial_number,
+    municipality_id,
+    endpoint_id,
+    certificate_id
+FROM cameras
+ORDER BY id;")
+    if [[ -z "$rows" ]]; then
         echo "No hay cámaras registradas."
         return
     fi
     echo "Cámaras disponibles:"
-    while IFS='|' read -r id serial_number municipality_id endpoint_id certificate_id; do
+    while IFS=$'\t' read -r cam_id serial_number municipality_id endpoint_id certificate_id; do
         printf -- "- %s: %s (municipio_id=%s, endpoint_id=%s, cert_id=%s)\n" \
-            "$id" "$serial_number" "$municipality_id" "$endpoint_id" "$certificate_id"
-    done <<< "$cameras"
+            "$cam_id" "$serial_number" "$municipality_id" "$endpoint_id" "$certificate_id"
+    done <<<"$rows"
 }
 
 list_municipalities() {
