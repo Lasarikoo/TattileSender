@@ -1,160 +1,125 @@
 # TattileSender
 
-Plataforma backend en Python para recibir lecturas ALPR de cámaras Tattile, almacenarlas con sus imágenes y reenviarlas con SOAP y WS-Security al endpoint de Mossos d'Esquadra.
+Plataforma backend en Python para recibir lecturas ALPR (XML Tattile), almacenar imágenes y reenviar las lecturas al servicio SOAP de Mossos d'Esquadra con firma WS-Security X.509. Incluye un servicio TCP de ingesta, APIs FastAPI para healthcheck y conversión de payloads Lector Vision, y un worker de envío con control de reintentos.
 
 ## 1️⃣ Introducción
-**¿Qué es?** Sistema compuesto por una API, un servicio de ingesta TCP y un worker de envío que procesa lecturas ALPR.
+**¿Qué es?** Un sistema compuesto por:
+- Servicio **Ingest** (TCP) que recibe XML Tattile, parsea el contenido, guarda imágenes en disco y encola lecturas en PostgreSQL.
+- **API FastAPI** con `/health` y endpoint `/ingest/lectorvision` para convertir JSON Lector Vision a XML Tattile.
+- **Sender worker** que consume la cola `messages_queue`, firma y envía lecturas al servicio SOAP, y limpia datos en éxito.
 
-**Problema que soluciona**: centraliza la recepción de XML Tattile, persiste lecturas + imágenes y las entrega firmadas mediante certificados municipales al servicio SOAP de Mossos, con control de reintentos, limpieza y trazabilidad.
+**Flujo de alto nivel**
+1. Las cámaras Tattile envían XML + imágenes en Base64 al servicio **Ingest** (TCP).
+2. **Ingest** guarda imágenes, crea el registro `alpr_readings` y encola el mensaje `messages_queue` en `PENDING`.
+3. **Sender** toma mensajes `PENDING`/`FAILED`, construye el SOAP `matricula`, firma con WS-Security y envía a Mossos.
+4. En éxito (`codiRetorn` con código OK) elimina lectura + imágenes + mensaje. En error aplica backoff y reintentos.
 
-**Flujo completo**
-1. Las cámaras Tattile envían XML + imágenes en Base64 al servicio **Ingest**.
-2. **Ingest** decodifica el XML, guarda las imágenes en disco, registra la lectura en PostgreSQL y añade un mensaje a la cola `messages_queue`.
-3. **Sender** lee la cola, carga el certificado del municipio, genera la petición SOAP con firma WS-Security y la envía a Mossos.
-4. Mossos responde con `codiRetorn`.
-   - Si `codiRetorn=1`: limpieza automática (se eliminan lectura, imágenes y mensaje de cola).
-   - Si hay error: se reintenta según configuración; si no hay imagen OCR disponible el mensaje pasa a `DEAD` sin reintentos.
+Para detalles técnicos completos consulta la documentación en [`docs/`](docs/).
 
-## 2️⃣ Requisitos del servidor
-- Ubuntu 22.04 o 24.04 (compatible con 20.04 de forma opcional).
-- Python 3.12.
-- PostgreSQL accesible localmente.
-- Certificados municipales en **PFX/P12 convertidos a PEM** (par `key.pem` + `privpub.pem`).
-- Puertos:
-  - API HTTP: **8000**.
-  - Ingest: definido en `.env` con `TRANSIT_PORT`.
-  - PostgreSQL accesible en localhost.
+## 2️⃣ Requisitos
+- **Python 3.10+** (recomendado 3.11).
+- **PostgreSQL 13+** accesible desde el host.
+- **OpenSSL** para extraer certificados de PFX/P12.
+- Acceso a certificados X.509 (cliente) y clave privada en formato PEM.
 
-## 3️⃣ Instalación del proyecto
-### 3.1 Clonar repositorio (ruta obligatoria)
-Siempre clona en `/opt/TattileSender/`:
+Puertos por defecto:
+- API HTTP principal: **8000**.
+- API Lector Vision (opcional, servicio separado): **33335**.
+- Ingest TCP Tattile: **TRANSIT_PORT** (por defecto **33334**).
+
+## 3️⃣ Instalación rápida (desarrollo local)
 ```bash
-cd /opt
-git clone <URL_PRIVADO_REPO> TattileSender
-cd TattileSender
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+# Edita .env con tus valores
+python -m alembic upgrade head
 ```
 
-### 3.2 Preparar entorno
-1. Copia la plantilla de variables: `cp .env.example .env`.
-2. Revisa la sección de configuración y ajusta `.env` antes de ejecutar scripts.
+### 3.1 Arranque manual
+- Ingest TCP:
+  ```bash
+  python -m app.ingest.main
+  ```
+- API principal:
+  ```bash
+  uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+  ```
+- API Lector Vision (opcional):
+  ```bash
+  uvicorn app.api.lectorvision:app --host 0.0.0.0 --port 33335
+  ```
+- Sender worker:
+  ```bash
+  python -m app.sender.main
+  ```
 
-## 4️⃣ Configuración del archivo .env
-Variables principales:
-- `DB_NAME`, `DB_USER`, `DB_PASSWORD`: credenciales PostgreSQL.
-- `DB_HOST`, `DB_PORT`: normalmente `localhost` y `5432`.
-- `TRANSIT_PORT`: puerto TCP donde escucha Ingest (ej. `33334`).
-- `IMAGES_BASE_DIR`: directorio base para imágenes (recomendado `/data/images`).
-- `CERTS_DIR`: ruta de certificados PEM (por defecto `/etc/tattile_sender/certs`).
-- `LOG_LEVEL`: `INFO` o `DEBUG`.
-- Opciones `SENDER_*`: controlan worker de envío (`SENDER_ENABLED`, `SENDER_POLL_INTERVAL_SECONDS`, `SENDER_MAX_BATCH_SIZE`, `SENDER_DEFAULT_RETRY_MAX`, `SENDER_DEFAULT_BACKOFF_MS`).
-  - `SENDER_STUCK_TIMEOUT_SECONDS`: tiempo máximo en `SENDING` antes de reintentar automáticamente (por defecto 300s).
+### 3.2 Instalación automatizada en VPS
+`./setup.sh` crea `.venv`, instala dependencias, ejecuta migraciones y genera servicios systemd:
+- `tattile-api.service`
+- `tattile-ingest.service`
+- `tattile-sender.service`
+- `tattile-lectorvision.service`
 
-Ejemplo completo:
+> **Nota:** `setup.sh` exige un `.env` válido y usa los valores de DB para crear la base de datos si no existe.
+
+## 4️⃣ Configuración (`.env`)
+Las variables se leen con Pydantic (`app/config.py`) y se pueden definir en `.env` o en el entorno. Ejemplo seguro:
+
 ```env
 APP_ENV=prod
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=tattile_sender_prod
-DB_USER=tattile_prod
-DB_PASSWORD=pon_aqui_la_password
+DB_NAME=tattile_sender
+DB_USER=tattile_user
+DB_PASSWORD=change_me
 CERTS_DIR=/etc/tattile_sender/certs
 IMAGES_BASE_DIR=/data/images
 TRANSIT_PORT=33334
 LOG_LEVEL=INFO
+
 SENDER_ENABLED=true
 SENDER_POLL_INTERVAL_SECONDS=5
 SENDER_MAX_BATCH_SIZE=50
 SENDER_DEFAULT_RETRY_MAX=3
 SENDER_DEFAULT_BACKOFF_MS=1000
 SENDER_STUCK_TIMEOUT_SECONDS=300
+
+# SOAP
+MOSSOS_WSDL_URL=https://example.invalid/matricules.wsdl
+MOSSOS_ENDPOINT_URL=https://example.invalid/matr-ws
+MOSSOS_TIMEOUT=5.0
+SOAP_DEBUG=0
 ```
 
-## 5️⃣ Ejecución de `setup.sh`
-`./setup.sh` automatiza la puesta en marcha (requiere sudo):
-- Detecta instalaciones existentes (venv, DB, servicios systemd) antes de crear nada.
-- Instala dependencias del sistema.
-- Crea o reutiliza la base de datos PostgreSQL definida en `.env` y asigna permisos.
-- Instala dependencias Python en `.venv` y ejecuta migraciones Alembic.
-- Genera y habilita los servicios `systemd`:
-  - `tattile-api.service`
-  - `tattile-ingest.service`
-  - `tattile-sender.service`
-- Arranca los servicios y muestra su estado. Comprueba que todo está activo con:
-```bash
-systemctl status tattile-api.service
-```
+Descripción detallada de cada variable en [`docs/configuration.md`](docs/configuration.md).
 
-## 6️⃣ Estructura del proyecto
-- `app/api`: API FastAPI/UVicorn.
-- `app/ingest`: servicio TCP que recibe XML + imágenes de cámaras.
-- `app/sender`: worker que consume la cola y envía a Mossos con WS-Security.
-- `data/images`: carpeta recomendada (montaje) para imágenes ALPR.
-- `etc/tattile_sender/certs`: ubicación recomendada de certificados PEM.
-- `ajustes.sh`: panel interactivo de administración.
-- `setup.sh`: instalación y despliegue automatizados en servidor.
-- `alembic/`: migraciones de base de datos.
-- `docs/`: documentación adicional.
+## 5️⃣ Estructura de carpetas relevantes
+- `app/api`: API FastAPI (`/health`, `/ingest/lectorvision`).
+- `app/ingest`: servicio TCP de ingesta.
+- `app/sender`: worker de envío SOAP.
+- `app/admin` + `app/scripts`: utilidades CLI y scripts interactivos.
+- `alembic/`: migraciones.
+- `docs/`: documentación técnica.
+- `data/images/`: almacenamiento recomendado para imágenes (configurable con `IMAGES_BASE_DIR`).
 
-## 7️⃣ Uso del panel de administración `ajustes.sh`
-Ejecuta `./ajustes.sh` (con `.venv` presente) y usa los menús interactivos:
+## 6️⃣ Operación básica
+- **Logs:** se controlan con `LOG_LEVEL` (por defecto `INFO`).
+- **Healthcheck API:** `GET /health` devuelve métricas mínimas (`pending`, `failed`, `dead`, `total_readings`).
+- **Imágenes:** se almacenan como rutas relativas en BD y se resuelven contra `IMAGES_BASE_DIR`.
+- **Reintentos:** el sender aplica backoff con `SENDER_DEFAULT_BACKOFF_MS` o con los valores definidos en cada endpoint.
 
-### Añadir datos
-- **Añadir municipios**.
-- **Añadir cámaras** (por número de serie).
-- **Añadir endpoints** (URL SOAP de cada municipio).
-- **Descomprimir certificado PFX y asignar a municipio** (crea `key.pem` + `privpub.pem` y lo asocia).
-
-### Asignar relaciones
-- Cámara → municipio.
-- Municipio → endpoint.
-- Municipio → certificado.
-- Cámara → certificado o endpoint (para casos específicos).
-
-### Eliminar datos
-- Cámaras, municipios, endpoints y certificados (con confirmación y opción de forzado).
-- Limpieza total de lecturas (incluye cola e imágenes).
-- Limpieza de cola.
-- Limpieza de imágenes en disco.
-
-### Modificar datos
-- Editar municipios, cámaras, endpoints y certificados existentes.
-
-### Utilidades del sistema
-- Ver uso del sistema en tiempo real (CPU, RAM, red, top procesos).
-- Ver estadísticas de base de datos (conteos de lecturas, cola, cámaras, municipios).
-- Reiniciar servicios `tattile-api`, `tattile-ingest`, `tattile-sender`.
-- Ver logs en tiempo real seleccionando uno de los servicios anteriores.
-
-## 8️⃣ Funcionamiento de las imágenes
-- Las cámaras envían imágenes Base64 (OCR y contexto) dentro del XML.
-- Se guardan en `/data/images/<CAMERA_SN>/YYYY/MM/DD/<timestamp>_plate-<PLATE>_{ocr|ctx}.jpg`.
-- En BD se almacena la ruta **relativa** al directorio base y los flags `has_image_ocr` / `has_image_ctx`.
-- El sender resuelve rutas relativas contra `IMAGES_BASE_DIR` y no envía lecturas sin imagen OCR presente.
-- Cuando Mossos devuelve `codiRetorn=1`, se eliminan lectura, imágenes y mensaje de cola asociados.
-
-## 9️⃣ Funcionamiento del servicio de ingesta
-- Escucha en `TRANSIT_PORT` (TCP) configurado en `.env`.
-- Espera XML con etiquetas Tattile estándar y campos `IMAGE_OCR`/`IMAGE_CTX` en Base64.
-- Ejemplo de log: `[INGEST] Lectura recibida (3060LFW) de (2001008851)`.
-
-### 9.1 Endpoint HTTP para Lector Vision
-Se expone un endpoint HTTP **en un servicio separado de la API principal** para aceptar JSON de “Lector Vision” y convertirlo a XML Tattile:
-
-- **Puerto recomendado**: `33335` (no usa el puerto 8000 de la API).
-- **Ruta**: `POST /ingest/lectorvision`
-- **Respuesta**: `202 Accepted` si se acepta, `400` si faltan campos obligatorios.
-- **Campos mínimos**:
-  - `Plate` (string)
-  - `TimeStamp` (string, formato `YYYY/MM/DD HH:MM:SS.mmm`)
-  - `SerialNumber` (string) o `IdDevice` (fallback)
-- **Conversión de fecha/hora**:
-  - `DATE` = `YYYY-MM-DD`
-  - `TIME` = `HH-MM-SS-mmm` (4 partes con guiones)
+## 7️⃣ Lector Vision (JSON → XML Tattile)
+Endpoint HTTP:
+- Ruta: `POST /ingest/lectorvision`
+- Respuesta: `202 Accepted` si se encola la lectura.
+- Campos obligatorios: `Plate`, `TimeStamp`, `SerialNumber` (o `IdDevice`).
 
 Ejemplo de `curl`:
 ```bash
-curl -X POST http://localhost:33335/ingest/lectorvision \\
-  -H 'Content-Type: application/json' \\
+curl -X POST http://localhost:33335/ingest/lectorvision \
+  -H 'Content-Type: application/json' \
   -d '{
     "Plate": "1234ABC",
     "TimeStamp": "2026/01/23 09:25:57.000",
@@ -168,47 +133,22 @@ curl -X POST http://localhost:33335/ingest/lectorvision \\
   }'
 ```
 
-> Nota: las lecturas se aceptan únicamente si la cámara (SerialNumber/IdDevice) existe en la base de datos.
+> La lectura se acepta solo si la cámara existe en la BD (`cameras.serial_number`).
 
-## 🔟 Funcionamiento del sender
-- Lee mensajes `PENDING`/`FAILED` de la cola.
-- Busca certificado asignado al municipio (o cámara) y endpoint SOAP.
-- Construye SOAP con **zeep**, firma WS-Security con `key.pem` + `privpub.pem` y adjunta imágenes.
-- Verifica existencia de imágenes; si falta la OCR el mensaje pasa a `DEAD` y no se reintenta.
-- Reintentos con backoff según `SENDER_*` o ajustes de endpoint.
-- Ejemplos de logs:
-  - `[SENDER] Enviando lectura (6080JYH)`
-  - `[SENDER] Reintento de lectura (6080JYH)`
-  - `[SENDER] Lectura (6080JYH) enviada correctamente a Mossos`
+## 8️⃣ Troubleshooting rápido
+- **No se reciben lecturas TCP:** revisa `TRANSIT_PORT`, firewall y que la cámara esté registrada.
+- **Errores de SOAP/WS-Security:** valida que `key.pem` y `client.pem` correspondan y que `MOSSOS_ENDPOINT_URL` sea correcto.
+- **Lecturas sin imagen OCR:** el sender descarta la lectura (`DEAD`).
+- **Stuck en SENDING:** se recuperan automáticamente tras `SENDER_STUCK_TIMEOUT_SECONDS`.
 
-## 1️⃣1️⃣ Cómo añadir una cámara real al sistema
-1. Añadir municipio con `./ajustes.sh` → «Añadir municipios».
-2. Añadir certificado municipal: coloca el `.pfx` en `CERTS_DIR`, usa «Descomprimir certificado PFX y asignar a municipio» para generar `key.pem` + `privpub.pem` y vincularlos automáticamente.
-3. Añadir endpoint SOAP del municipio.
-4. Añadir cámara (número de serie Tattile) y relacionarla con el municipio.
-5. Configurar la cámara Tattile apuntando al servidor (`IP` del servidor, puerto `TRANSIT_PORT`).
-6. Probar ingesta desde el menú (simulación) o con la propia cámara.
-7. Verificar que el sender entrega a Mossos y recibe `codiRetorn=1`.
-
-## 1️⃣2️⃣ Ejemplo de lectura completa funcionando
-1. XML recibido en `TRANSIT_PORT` con `IMAGE_OCR` y `IMAGE_CTX` Base64.
-2. Imágenes decodificadas y guardadas en `/data/images/<SN>/YYYY/MM/DD/...jpg`.
-3. Inserción en `alpr_readings` con rutas relativas y flags `has_image_*`.
-4. Creación del mensaje en `messages_queue` con estado `PENDING`.
-5. Sender toma el mensaje, valida imágenes, firma SOAP y lo envía.
-6. Mossos responde `codiRetorn=1` → log de éxito.
-7. Limpieza automática: se borra la lectura, las imágenes y la entrada de cola.
-
-## 1️⃣3️⃣ Troubleshooting
-- **Permisos en `/data/images`**: asegúrate de que el usuario de servicio puede escribir; corrige con `chown -R root:root /data/images` o permisos adecuados.
-- **Systemd no arranca**: revisa `.env`, ejecuta `systemctl status tattile-api tattile-ingest tattile-sender` y `journalctl -fu tattile-api.service`.
-- **Certificado mal asignado**: verifica rutas en `CERTS_DIR`, re-extrae con `ajustes.sh` y confirma que `key.pem` y `privpub.pem` existen.
-- **Error WS-Security**: habilita `LOG_LEVEL=DEBUG` y revisa `journalctl -fu tattile-sender.service`; comprueba que la pareja cert/clave corresponda.
-- **No se reciben lecturas**: confirma puerto `TRANSIT_PORT`, firewall abierto y que la cámara esté registrada en BD.
-- Logs útiles:
-  - `journalctl -fu tattile-ingest.service`
-  - `journalctl -fu tattile-sender.service`
-  - `journalctl -fu tattile-api.service`
+## 9️⃣ Roadmap corto
+- Validar y persistir atributos extra del vehículo (marca, color, tipo) para incluirlos en el SOAP.
+- Añadir métricas estructuradas (Prometheus) para estado de cola y último envío por cámara.
 
 ---
-Para detalles técnicos ampliados revisa `docs/`.
+Documentación técnica adicional:
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/configuration.md`](docs/configuration.md)
+- [`docs/data-formats.md`](docs/data-formats.md)
+- [`docs/soap-lectio.md`](docs/soap-lectio.md)
+- [`docs/ops.md`](docs/ops.md)
