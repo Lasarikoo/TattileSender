@@ -11,3 +11,23 @@ build/
 dist/
 .eggs/
 *.egg-info/
+
+# Datos generados / runtime
+/data/
+data/
+logs/
+queue/
+failed/
+sent/
+inbox/
+outbox/
+
+# Certificados y secretos
+certs/
+*.pem
+*.pfx
+*.p12
+*.key
+*.crt
+*.cer
+*.der
