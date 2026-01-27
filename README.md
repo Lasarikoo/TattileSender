@@ -137,6 +137,36 @@ Ejecuta `./ajustes.sh` (con `.venv` presente) y usa los menús interactivos:
 - Espera XML con etiquetas Tattile estándar y campos `IMAGE_OCR`/`IMAGE_CTX` en Base64.
 - Ejemplo de log: `[INGEST] Lectura recibida (3060LFW) de (2001008851)`.
 
+### 9.1 Endpoint HTTP para Lector Vision
+Se expone un endpoint HTTP que acepta JSON de “Lector Vision” y lo convierte al XML Tattile que ya procesa el ingest:
+
+- **Ruta**: `POST /ingest/lectorvision`
+- **Respuesta**: `202 Accepted` si se acepta, `400` si faltan campos obligatorios.
+- **Campos mínimos**:
+  - `Plate` (string)
+  - `TimeStamp` (string, formato `YYYY/MM/DD HH:MM:SS.mmm`)
+  - `SerialNumber` (string) o `IdDevice` (fallback)
+- **Conversión de fecha/hora**:
+  - `DATE` = `YYYY-MM-DD`
+  - `TIME` = `HH-MM-SS-mmm` (4 partes con guiones)
+
+Ejemplo de `curl`:
+```bash
+curl -X POST http://localhost:8000/ingest/lectorvision \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "Plate": "1234ABC",
+    "TimeStamp": "2026/01/23 09:25:57.000",
+    "SerialNumber": "LV-01",
+    "Fiability": 87,
+    "LaneNumber": 2,
+    "LaneName": "Carril 2",
+    "Direction": "IN",
+    "PlateCoord": [10, 20, 110, 220],
+    "Country": 724
+  }'
+```
+
 ## 🔟 Funcionamiento del sender
 - Lee mensajes `PENDING`/`FAILED` de la cola.
 - Busca certificado asignado al municipio (o cámara) y endpoint SOAP.
