@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from app.api.main import ingest_lectorvision
+from app.api.lectorvision import ingest_lectorvision
 from app.ingest.lectorvision import build_tattile_xml_from_lectorvision, parse_lectorvision_timestamp
 from app.ingest.parser import parse_tattile_xml
 
@@ -60,12 +60,31 @@ def test_lectorvision_endpoint_accepts_payload(monkeypatch):
     def fake_process(xml_str, session):
         captured["xml"] = xml_str
 
+    class DummyQuery:
+        def __init__(self, result):
+            self._result = result
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def first(self):
+            return self._result
+
     class DummySession:
+        def __init__(self, result):
+            self._result = result
+
+        def query(self, model):
+            return DummyQuery(self._result)
+
+        def rollback(self) -> None:
+            return None
+
         def close(self) -> None:
             return None
 
-    monkeypatch.setattr("app.api.main.process_tattile_payload", fake_process)
-    monkeypatch.setattr("app.api.main.SessionLocal", lambda: DummySession())
+    monkeypatch.setattr("app.api.lectorvision.process_tattile_payload", fake_process)
+    monkeypatch.setattr("app.api.lectorvision.SessionLocal", lambda: DummySession(object()))
 
     payload = {
         "Plate": "9999ZZZ",
@@ -77,3 +96,35 @@ def test_lectorvision_endpoint_accepts_payload(monkeypatch):
     assert response["status"] == "accepted"
     assert response["plate"] == "9999ZZZ"
     assert "PLATE_STRING" in captured["xml"]
+
+
+def test_lectorvision_endpoint_rejects_unregistered_camera(monkeypatch):
+    class DummyQuery:
+        def filter(self, *args, **kwargs):
+            return self
+
+        def first(self):
+            return None
+
+    class DummySession:
+        def query(self, model):
+            return DummyQuery()
+
+        def rollback(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("app.api.lectorvision.SessionLocal", lambda: DummySession())
+
+    payload = {
+        "Plate": "8888YYY",
+        "TimeStamp": "2026/01/23 09:25:57.000",
+        "SerialNumber": "LV-404",
+    }
+
+    with pytest.raises(HTTPException) as excinfo:
+        ingest_lectorvision(payload)
+
+    assert excinfo.value.status_code == 404

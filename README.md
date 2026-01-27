@@ -138,8 +138,9 @@ Ejecuta `./ajustes.sh` (con `.venv` presente) y usa los menús interactivos:
 - Ejemplo de log: `[INGEST] Lectura recibida (3060LFW) de (2001008851)`.
 
 ### 9.1 Endpoint HTTP para Lector Vision
-Se expone un endpoint HTTP que acepta JSON de “Lector Vision” y lo convierte al XML Tattile que ya procesa el ingest:
+Se expone un endpoint HTTP **en un servicio separado de la API principal** para aceptar JSON de “Lector Vision” y convertirlo a XML Tattile:
 
+- **Puerto recomendado**: `33335` (no usa el puerto 8000 de la API).
 - **Ruta**: `POST /ingest/lectorvision`
 - **Respuesta**: `202 Accepted` si se acepta, `400` si faltan campos obligatorios.
 - **Campos mínimos**:
@@ -152,7 +153,7 @@ Se expone un endpoint HTTP que acepta JSON de “Lector Vision” y lo convierte
 
 Ejemplo de `curl`:
 ```bash
-curl -X POST http://localhost:8000/ingest/lectorvision \\
+curl -X POST http://localhost:33335/ingest/lectorvision \\
   -H 'Content-Type: application/json' \\
   -d '{
     "Plate": "1234ABC",
@@ -166,6 +167,8 @@ curl -X POST http://localhost:8000/ingest/lectorvision \\
     "Country": 724
   }'
 ```
+
+> Nota: las lecturas se aceptan únicamente si la cámara (SerialNumber/IdDevice) existe en la base de datos.
 
 ## 🔟 Funcionamiento del sender
 - Lee mensajes `PENDING`/`FAILED` de la cola.
