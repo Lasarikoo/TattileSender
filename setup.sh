@@ -62,7 +62,7 @@ describe_existing_installation() {
   db_exists=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}';" 2>/dev/null || echo "")
   [[ "$db_exists" == "1" ]] && parts+=("DB")
 
-  for svc in /etc/systemd/system/tattile-api.service /etc/systemd/system/tattile-ingest.service /etc/systemd/system/tattile-sender.service; do
+  for svc in /etc/systemd/system/tattile-api.service /etc/systemd/system/tattile-ingest.service /etc/systemd/system/tattile-sender.service /etc/systemd/system/tattile-lectorvision.service; do
     [[ -f "$svc" ]] && parts+=("systemd") && break
   done
 
@@ -136,6 +136,7 @@ create_systemd_services() {
   local api_service="/etc/systemd/system/tattile-api.service"
   local ingest_service="/etc/systemd/system/tattile-ingest.service"
   local sender_service="/etc/systemd/system/tattile-sender.service"
+  local lectorvision_service="/etc/systemd/system/tattile-lectorvision.service"
 
   local api_content="[Unit]
 Description=TattileSender - API HTTP
@@ -185,12 +186,29 @@ Group=root
 [Install]
 WantedBy=multi-user.target"
 
+  local lectorvision_content="[Unit]
+Description=TattileSender - API Lector Vision
+After=network.target
+
+[Service]
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$APP_DIR/.env
+ExecStart=$VENV_DIR/bin/uvicorn app.api.lectorvision:app --host 0.0.0.0 --port 33335
+Restart=always
+RestartSec=5
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target"
+
   printf "→ Instalando servicios systemd… "
   if echo "$api_content" | sudo tee "$api_service" > /dev/null \
     && echo "$ingest_content" | sudo tee "$ingest_service" > /dev/null \
     && echo "$sender_content" | sudo tee "$sender_service" > /dev/null \
+    && echo "$lectorvision_content" | sudo tee "$lectorvision_service" > /dev/null \
     && sudo systemctl daemon-reload > /dev/null 2>&1 \
-    && sudo systemctl enable tattile-api.service tattile-ingest.service tattile-sender.service > /dev/null 2>&1; then
+    && sudo systemctl enable tattile-api.service tattile-ingest.service tattile-sender.service tattile-lectorvision.service > /dev/null 2>&1; then
     echo "OK"
   else
     echo "FAILED"
@@ -214,6 +232,7 @@ start_services() {
   start_service "API" "tattile-api.service"
   start_service "Ingest" "tattile-ingest.service"
   start_service "Sender" "tattile-sender.service"
+  start_service "Lector Vision" "tattile-lectorvision.service"
 }
 
 main() {

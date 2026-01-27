@@ -858,7 +858,7 @@ menu_consultas_bd() {
 
 reiniciar_servicios_tattile() {
     clear
-    read -rp "Esto reiniciará tattile-api, tattile-ingest y tattile-sender. ¿Quieres continuar? [y/N] " confirm
+    read -rp "Esto reiniciará tattile-api, tattile-ingest, tattile-sender y tattile-lectorvision. ¿Quieres continuar? [y/N] " confirm
     case "$confirm" in
         y|Y)
             ;;
@@ -869,13 +869,22 @@ reiniciar_servicios_tattile() {
     esac
 
     echo "Reiniciando servicios..."
-    sudo systemctl restart tattile-api tattile-ingest tattile-sender || {
-        echo "Error al reiniciar alguno de los servicios."
-    }
+    local services=(tattile-api tattile-ingest tattile-sender tattile-lectorvision)
+    local failed=0
+    for service in "${services[@]}"; do
+        if systemctl is-active --quiet "$service"; then
+            sudo systemctl restart "$service" || failed=1
+        else
+            sudo systemctl start "$service" || failed=1
+        fi
+    done
+    if [[ $failed -ne 0 ]]; then
+        echo "Error al reiniciar o levantar alguno de los servicios."
+    fi
 
     echo
     echo "== ESTADO DE LOS SERVICIOS =="
-    for service in tattile-api tattile-ingest tattile-sender; do
+    for service in "${services[@]}"; do
         printf "%s: %s\n" "$service" "$(systemctl is-active "$service")"
     done
 
