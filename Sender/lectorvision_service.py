@@ -674,35 +674,22 @@ def fill_b64_from_path_if_missing(record: dict, path_keys: list[str], target_key
         return used_images
     return used_images
 
-def record_is_valid_strict(record: dict) -> bool:
+def record_has_valid_pair(record: dict) -> bool:
     has_ocr_path = bool(first_nonempty_str(record, OCR_PATH_KEYS))
     has_ctx_path = bool(first_nonempty_str(record, CTX_PATH_KEYS))
     has_ocr_b64 = any_base64_present(record, OCR_B64_KEYS)
     has_ctx_b64 = any_base64_present(record, CTX_B64_KEYS)
     paths_ok = has_ocr_path and has_ctx_path
-    paths_half = has_ocr_path != has_ctx_path
     b64_ok = has_ocr_b64 and has_ctx_b64
-    b64_half = has_ocr_b64 != has_ctx_b64
-    if paths_half or b64_half:
-        return False
     return paths_ok or b64_ok
 
-def ensure_final_has_both_b64(record: dict) -> bool:
-    ocr_ok = any_base64_present(record, OCR_B64_KEYS)
-    ctx_ok = any_base64_present(record, CTX_B64_KEYS)
-    return ocr_ok and ctx_ok
-
-def process_one_record(record: dict) -> tuple[dict, list[Path], str]:
-    if ENABLE_STRICT_FILTERS:
-        if not record_is_valid_strict(record):
-            return record, [], "strict_pair_invalid"
+def process_one_record(record: dict) -> tuple[dict | None, list[Path], str]:
+    if not record_has_valid_pair(record):
+        return None, [], "missing_required_pair"
     used: list[Path] = []
     used += fill_b64_from_path_if_missing(record, OCR_PATH_KEYS, OCR_B64_KEYS)
     used += fill_b64_from_path_if_missing(record, CTX_PATH_KEYS, CTX_B64_KEYS)
     used += fill_b64_from_path_if_missing(record, CROP_PATH_KEYS, CROP_B64_KEYS)
-    if ENABLE_STRICT_FILTERS:
-        if not ensure_final_has_both_b64(record):
-            return record, used, "missing_final_b64"
     return record, used, "ok"
 
 def process_payload(payload: object) -> tuple[object | None, list[Path], str]:
@@ -710,6 +697,8 @@ def process_payload(payload: object) -> tuple[object | None, list[Path], str]:
     if isinstance(payload, dict):
         rec, imgs, why = process_one_record(payload)
         used += imgs
+        if rec is None:
+            return None, used, why
         return rec, used, why
     if isinstance(payload, list):
         out_list = []
@@ -718,6 +707,8 @@ def process_payload(payload: object) -> tuple[object | None, list[Path], str]:
                 continue
             rec, imgs, why = process_one_record(item)
             used += imgs
+            if rec is None:
+                continue
             out_list.append(rec)
         if not out_list:
             return None, used, "no_dict_items"
