@@ -49,6 +49,15 @@ CLONED_DIR = Path(r"C:\Program Files (x86)\LectorVision\RedLight\Images")
 IMAGE_RETENTION_HOURS = 0.75
 IMAGE_CLEAN_INTERVAL_SEC = 600
 
+FAILED_RETENTION_HOURS = 1
+FAILED_CLEAN_INTERVAL_SEC = 3600
+
+PENDING_RETENTION_HOURS = 1
+PENDING_CLEAN_INTERVAL_SEC = 3600
+
+INGEST_RETENTION_HOURS = 1
+INGEST_CLEAN_INTERVAL_SEC = 3600
+
 SCAN_INTERVAL_SEC = 0.5
 COPY_MAX_TRIES = 25
 COPY_RETRY_DELAY_SEC = 0.04
@@ -372,6 +381,37 @@ def log_cleanup_worker(stop_event: threading.Event):
     while not stop_event.is_set():
         cleanup_old_logs()
         for _ in range(int(LOG_CLEAN_INTERVAL_SEC * 10)):
+            if stop_event.is_set():
+                break
+            time.sleep(0.1)
+
+def cleanup_old_files_in_dir(target_dir: Path, retention_hours: float, label: str) -> None:
+    try:
+        cutoff = time.time() - (retention_hours * 3600)
+        deleted = 0
+        scanned = 0
+        if not target_dir.exists():
+            return
+        for f in target_dir.iterdir():
+            if not f.is_file():
+                continue
+            scanned += 1
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink(missing_ok=True)
+                    deleted += 1
+            except Exception:
+                pass
+        if deleted:
+            log("cleanup", f"{label} cleanup: deleted={deleted} scanned={scanned} retention_hours={retention_hours}")
+    except Exception:
+        log("cleanup", f"{label} cleanup error:\n" + traceback.format_exc())
+
+def dir_cleanup_worker(stop_event: threading.Event, target_dir: Path, retention_hours: float, interval_sec: float, label: str):
+    ensure_dir(target_dir)
+    while not stop_event.is_set():
+        cleanup_old_files_in_dir(target_dir, retention_hours, label)
+        for _ in range(int(interval_sec * 10)):
             if stop_event.is_set():
                 break
             time.sleep(0.1)
@@ -948,8 +988,33 @@ class LectorVisionService(win32serviceutil.ServiceFramework):
 
             t_img_clean = threading.Thread(target=image_cleanup_worker, args=(self.stop_event,), daemon=True)
             t_log_clean = threading.Thread(target=log_cleanup_worker, args=(self.stop_event,), daemon=True)
+            t_failed_clean = threading.Thread(
+                target=dir_cleanup_worker,
+                args=(self.stop_event, SENDER_FAILED_DIR, FAILED_RETENTION_HOURS, FAILED_CLEAN_INTERVAL_SEC, "failed"),
+                daemon=True,
+            )
+            t_pending_clean = threading.Thread(
+                target=dir_cleanup_worker,
+                args=(self.stop_event, SENDER_PENDING_DIR, PENDING_RETENTION_HOURS, PENDING_CLEAN_INTERVAL_SEC, "pending"),
+                daemon=True,
+            )
+            t_ingest_clean = threading.Thread(
+                target=dir_cleanup_worker,
+                args=(self.stop_event, INGEST_JSON_DIR, INGEST_RETENTION_HOURS, INGEST_CLEAN_INTERVAL_SEC, "ingest"),
+                daemon=True,
+            )
 
-            self.threads = [t_api, t_mirror, t_proc, t_send, t_img_clean, t_log_clean]
+            self.threads = [
+                t_api,
+                t_mirror,
+                t_proc,
+                t_send,
+                t_img_clean,
+                t_log_clean,
+                t_failed_clean,
+                t_pending_clean,
+                t_ingest_clean,
+            ]
             for t in self.threads:
                 t.start()
 
