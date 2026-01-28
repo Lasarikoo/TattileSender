@@ -764,10 +764,17 @@ def processor_worker(stop_event: threading.Event):
     log("proc", f"Watching {INGEST_JSON_DIR} -> {SENDER_JSON_DIR}")
     while not stop_event.is_set():
         try:
-            files = [p for p in INGEST_JSON_DIR.iterdir() if p.is_file() and p.suffix.lower() == ".json"]
-            if files:
-                files.sort(key=lambda p: p.stat().st_mtime)
-                process_one_ingest_file(files[0])
+            candidates: list[tuple[float, Path]] = []
+            for p in INGEST_JSON_DIR.iterdir():
+                if not (p.is_file() and p.suffix.lower() == ".json"):
+                    continue
+                try:
+                    candidates.append((p.stat().st_mtime, p))
+                except FileNotFoundError:
+                    continue
+            if candidates:
+                candidates.sort(key=lambda item: item[0])
+                process_one_ingest_file(candidates[0][1])
         except Exception:
             log("proc", "ERR:\n" + traceback.format_exc())
         time.sleep(PROC_POLL_SEC)
@@ -846,10 +853,17 @@ def sender_worker(stop_event: threading.Event):
 
     while not stop_event.is_set():
         try:
-            files = [p for p in SENDER_JSON_DIR.iterdir() if p.is_file() and p.suffix.lower() == ".json"]
-            if files:
-                files.sort(key=lambda p: p.stat().st_mtime)
-                src = files[0]
+            candidates: list[tuple[float, Path]] = []
+            for p in SENDER_JSON_DIR.iterdir():
+                if not (p.is_file() and p.suffix.lower() == ".json"):
+                    continue
+                try:
+                    candidates.append((p.stat().st_mtime, p))
+                except FileNotFoundError:
+                    continue
+            if candidates:
+                candidates.sort(key=lambda item: item[0])
+                src = candidates[0][1]
 
                 pending = unique_path(SENDER_PENDING_DIR / src.name)
                 try:
