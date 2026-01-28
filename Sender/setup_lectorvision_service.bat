@@ -15,20 +15,19 @@ REM set "START_MODE=delayed-auto"
 REM Recovery delays (ms)
 set "RESTART_DELAY_MS=5000"
 
-REM VENV name inside script folder
-set "VENV_DIR=.venv"
-
 REM Packages needed by the script
 set "REQ_PKGS=fastapi uvicorn watchdog pywin32"
+
+REM Exit code tracking
+set "EXIT_CODE=0"
+set "DID_PUSHD=0"
 
 REM ============================================================
 REM Admin check
 REM ============================================================
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-  echo [ERROR] Ejecuta este .bat como Administrador.
-  echo         Click derecho ^> "Ejecutar como administrador"
-  exit /b 1
+  call :fail "Este .bat requiere privilegios de Administrador. Click derecho ^> \"Ejecutar como administrador\"." 1
 )
 
 REM ============================================================
@@ -36,17 +35,14 @@ REM Validate python
 REM ============================================================
 where %PY% >nul 2>&1
 if %errorlevel% neq 0 (
-  echo [ERROR] No se encontro "python" en el PATH.
-  echo         Instala Python o anadelo al PATH y vuelve a ejecutar.
-  exit /b 1
+  call :fail "No se encontro \"python\" en el PATH. Instala Python y verifica el PATH (o ajusta la variable PY)." 1
 )
 
 REM ============================================================
 REM Validate script exists
 REM ============================================================
 if not exist "%SCRIPT_PATH%" (
-  echo [ERROR] No existe el script: "%SCRIPT_PATH%"
-  exit /b 1
+  call :fail "No existe el script: \"%SCRIPT_PATH%\". Verifica la ruta en SCRIPT_PATH." 1
 )
 
 REM Resolve script dir
@@ -63,49 +59,34 @@ echo [INFO] Service: %SVC_NAME%
 echo.
 
 REM ============================================================
-REM 1) Create / use venv (recommended)
+REM 1) Install deps using system Python (no venv)
 REM ============================================================
 pushd "%SCRIPT_DIR%"
+set "DID_PUSHD=1"
 
-if not exist "%VENV_DIR%\Scripts\python.exe" (
-  echo [STEP] Creando venv en "%SCRIPT_DIR%%VENV_DIR%" ...
-  %PY% -m venv "%VENV_DIR%"
-  if %errorlevel% neq 0 (
-    echo [ERROR] No se pudo crear el venv. Abortando.
-    popd
-    exit /b 1
-  )
-) else (
-  echo [INFO] Venv ya existe: "%SCRIPT_DIR%%VENV_DIR%"
-)
-
-set "VENV_PY=%SCRIPT_DIR%%VENV_DIR%\Scripts\python.exe"
-set "VENV_PIP=%SCRIPT_DIR%%VENV_DIR%\Scripts\pip.exe"
-
-REM ============================================================
-REM 2) Upgrade pip + install deps
-REM ============================================================
-echo [STEP] Actualizando pip/setuptools/wheel...
-"%VENV_PY%" -m pip install --upgrade pip setuptools wheel
+echo [STEP] Validando pip en el Python del sistema...
+"%PY%" -m pip --version >nul 2>&1
 if %errorlevel% neq 0 (
-  echo [ERROR] No se pudo actualizar pip. Abortando.
-  popd
-  exit /b 1
+  call :fail "Pip no esta disponible en el Python del sistema. Ejecuta \"python -m ensurepip --upgrade\" o reinstala Python con pip habilitado." 1
 )
 
-echo [STEP] Instalando dependencias: %REQ_PKGS%
-"%VENV_PY%" -m pip install --upgrade %REQ_PKGS%
+echo [STEP] Actualizando pip/setuptools/wheel en el sistema...
+"%PY%" -m pip install --upgrade pip setuptools wheel
 if %errorlevel% neq 0 (
-  echo [ERROR] Fallo instalando dependencias. Abortando.
-  popd
-  exit /b 1
+  call :fail "No se pudo actualizar pip/setuptools/wheel. Revisa permisos, proxy o conectividad a Internet." 1
+)
+
+echo [STEP] Instalando dependencias en el sistema: %REQ_PKGS%
+"%PY%" -m pip install --upgrade %REQ_PKGS%
+if %errorlevel% neq 0 (
+  call :fail "Fallo instalando dependencias (%REQ_PKGS%). Verifica conectividad, permisos o version de Python." 1
 )
 
 REM ============================================================
-REM 3) Install service using venv python (important)
+REM 2) Install service using system python
 REM ============================================================
 echo [STEP] Instalando servicio (pywin32)...
-"%VENV_PY%" "%SCRIPT_PATH%" install >nul 2>&1
+"%PY%" "%SCRIPT_PATH%" install >nul 2>&1
 if %errorlevel% neq 0 (
   echo [WARN] La instalacion devolvio error. Puede ser que ya este instalado. Continuo...
 ) else (
@@ -113,48 +94,42 @@ if %errorlevel% neq 0 (
 )
 
 REM ============================================================
-REM 4) Start mode
+REM 3) Start mode
 REM ============================================================
 echo [STEP] Configurando inicio: %START_MODE%
 sc.exe config "%SVC_NAME%" start= %START_MODE% >nul
 if %errorlevel% neq 0 (
-  echo [ERROR] No se pudo configurar start=%START_MODE% para %SVC_NAME%
-  popd
-  exit /b 1
+  call :fail "No se pudo configurar start=%START_MODE% para %SVC_NAME%. Verifica el nombre del servicio y permisos." 1
 )
 echo [OK] Start mode aplicado.
 
 REM ============================================================
-REM 5) Recovery config (restart on failure)
+REM 4) Recovery config (restart on failure)
 REM ============================================================
 echo [STEP] Configurando Recovery (auto-restart tras fallos)...
 sc.exe failure "%SVC_NAME%" reset= 0 actions= restart/%RESTART_DELAY_MS%/restart/%RESTART_DELAY_MS%/restart/%RESTART_DELAY_MS% >nul
 if %errorlevel% neq 0 (
-  echo [ERROR] No se pudo configurar "failure actions" para %SVC_NAME%
-  popd
-  exit /b 1
+  call :fail "No se pudo configurar \"failure actions\" para %SVC_NAME%. Verifica que el servicio exista." 1
 )
 
 sc.exe failureflag "%SVC_NAME%" 1 >nul
 if %errorlevel% neq 0 (
-  echo [ERROR] No se pudo configurar "failureflag" para %SVC_NAME%
-  popd
-  exit /b 1
+  call :fail "No se pudo configurar \"failureflag\" para %SVC_NAME%. Verifica permisos." 1
 )
 echo [OK] Recovery aplicado.
 
 REM ============================================================
-REM 6) Start service (use venv python to avoid missing modules)
+REM 5) Start service (use system python)
 REM ============================================================
 echo [STEP] Arrancando servicio...
 sc.exe query "%SVC_NAME%" | find /I "RUNNING" >nul
 if %errorlevel% equ 0 (
   echo [INFO] Ya estaba RUNNING. Reiniciando para asegurar dependencias/config...
-  "%VENV_PY%" "%SCRIPT_PATH%" stop >nul 2>&1
+  "%PY%" "%SCRIPT_PATH%" stop >nul 2>&1
   timeout /t 2 /nobreak >nul
 )
 
-"%VENV_PY%" "%SCRIPT_PATH%" start
+"%PY%" "%SCRIPT_PATH%" start
 if %errorlevel% neq 0 (
   echo [WARN] Start via pywin devolvio error. Intento con sc.exe start...
   sc.exe start "%SVC_NAME%" >nul 2>&1
@@ -163,13 +138,13 @@ if %errorlevel% neq 0 (
 timeout /t 2 /nobreak >nul
 
 REM ============================================================
-REM 7) Verification
+REM 6) Verification
 REM ============================================================
 echo.
 echo [INFO] Estado del servicio:
 sc.exe query "%SVC_NAME%"
 echo.
-echo [INFO] Failure config:
+echo [INFO] Configuracion de acciones ante fallos (no indica error actual):
 sc.exe qfailure "%SVC_NAME%"
 echo.
 echo [INFO] QC config:
@@ -177,6 +152,24 @@ sc.exe qc "%SVC_NAME%"
 echo.
 echo [DONE] Listo.
 
-popd
+goto :end
+
+:fail
+echo [ERROR] %~1
+set "EXIT_CODE=%~2"
+goto :end
+
+:end
+if "%DID_PUSHD%"=="1" popd
+if %EXIT_CODE% neq 0 (
+  echo.
+  echo [FAILED] El proceso termino con errores. Revisa los mensajes anteriores.
+) else (
+  echo.
+  echo [OK] El proceso finalizo correctamente.
+)
+echo.
+echo Presiona cualquier tecla para cerrar esta ventana.
+pause >nul
 endlocal
-exit /b 0
+exit /b %EXIT_CODE%
