@@ -43,3 +43,11 @@ python -m alembic upgrade head
 ## Monitorización mínima
 - `/health` devuelve conteos de cola (`pending`, `failed`, `dead`) y total de lecturas.
 - Revisa logs con `LOG_LEVEL=DEBUG` durante pruebas.
+
+## Depuración SOAP
+Para activar el volcado del envelope SOAP y revisar detalles de validación:
+1) Define `SOAP_DEBUG=1` y sube el nivel a `LOG_LEVEL=DEBUG` en tu `.env` o entorno.
+2) Reinicia el servicio `tattile-sender` para que lea las nuevas variables.
+3) Revisa los logs del sender:
+   - systemd: `sudo journalctl -fu tattile-sender.service`
+   - contenedor: `docker logs -f <nombre_del_contenedor_sender>`
