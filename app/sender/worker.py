@@ -95,7 +95,7 @@ def _get_plate(reading: AlprReading | None) -> str:
     return (reading.plate or "DESCONOCIDA").strip().upper() if reading else "DESCONOCIDA"
 
 
-def _mark_dead(
+def _discard_message(
     session: Session,
     message: MessageQueue,
     error: str,
@@ -103,20 +103,49 @@ def _mark_dead(
     log_message: bool = True,
     log_level: int = logging.ERROR,
 ) -> None:
-    message.status = MessageStatus.DEAD
-    message.last_error = error
-    message.updated_at = datetime.now(timezone.utc)
-    session.add(message)
-    session.commit()
     plate = _get_plate(message.reading)
     if log_message:
         logger.log(log_level, "[SENDER] Lectura (%s) descartada por %s", plate, error)
     logger.debug(
-        "[SENDER][DEBUG] Mensaje %s marcado como DEAD por %s (reading_id=%s)",
+        "[SENDER][DEBUG] Marcando mensaje %s como DEAD por %s (reading_id=%s)",
         message.id,
         error,
         message.reading_id,
     )
+    message.status = MessageStatus.DEAD
+    message.last_error = error
+    message.next_retry_at = None
+    message.updated_at = datetime.now(timezone.utc)
+    session.add(message)
+    session.commit()
+
+
+def _delete_expired_dead(session: Session, now: datetime) -> int:
+    retention_minutes = max(settings.sender_dead_retention_minutes, 1)
+    threshold = now - timedelta(minutes=retention_minutes)
+    expired_messages = (
+        session.query(MessageQueue)
+        .options(selectinload(MessageQueue.reading))
+        .filter(MessageQueue.status == MessageStatus.DEAD)
+        .filter(MessageQueue.updated_at <= threshold)
+        .all()
+    )
+    if not expired_messages:
+        return 0
+
+    for message in expired_messages:
+        reading = message.reading
+        if reading:
+            delete_reading_images(reading)
+            session.delete(reading)
+        session.delete(message)
+    session.commit()
+    logger.info(
+        "[SENDER] Eliminados %s mensajes DEAD con antigüedad > %s min",
+        len(expired_messages),
+        retention_minutes,
+    )
+    return len(expired_messages)
 
 
 def _validate_images(reading: AlprReading) -> tuple[bool, str | None]:
@@ -169,7 +198,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
             reading.id if reading else None,
             camera.serial_number if camera else None,
         )
-        _mark_dead(session, message, "LECTURA_O_CAMARA_NO_ENCONTRADA")
+        _discard_message(session, message, "LECTURA_O_CAMARA_NO_ENCONTRADA")
         return
 
     logger.debug(
@@ -192,7 +221,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
             municipality.name if municipality else None,
             camera.serial_number if camera else None,
         )
-        _mark_dead(session, message, "CERTIFICADO_NO_CONFIGURADO")
+        _discard_message(session, message, "CERTIFICADO_NO_CONFIGURADO")
         return
 
     service_url = endpoint.url if endpoint else settings.MOSSOS_ENDPOINT_URL
@@ -202,7 +231,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
             message.id,
             endpoint.id if hasattr(endpoint, "id") else None,
         )
-        _mark_dead(session, message, "ENDPOINT_URL_NO_CONFIGURADA")
+        _discard_message(session, message, "ENDPOINT_URL_NO_CONFIGURADA")
         return
     logger.debug(
         "[SENDER][DEBUG] Endpoint efectivo para mensaje %s: %s", message.id, service_url
@@ -210,7 +239,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
 
     retry_max, backoff_ms = _resolve_retry_config(endpoint)
     if message.attempts >= retry_max:
-        _mark_dead(session, message, "MAX_REINTENTOS_AGOTADOS")
+        _discard_message(session, message, "MAX_REINTENTOS_AGOTADOS")
         return
 
     if _should_skip_retry(message, utc_now):
@@ -223,7 +252,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
     if not ok_images:
         logger.info("[SENDER] Lectura sin imagen (%s) descartada", plate)
         logger.debug("[SENDER][DEBUG] Motivo imagen inválida para %s: %s", plate, image_error)
-        _mark_dead(
+        _discard_message(
             session,
             message,
             image_error or "NO_IMAGE_AVAILABLE",
@@ -244,7 +273,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
             message.id,
             camera.serial_number if camera else None,
         )
-        _mark_dead(session, message, "MUNICIPIO_NO_DISPONIBLE")
+        _discard_message(session, message, "MUNICIPIO_NO_DISPONIBLE")
         return
 
     timeout_ms = endpoint.timeout_ms if getattr(endpoint, "timeout_ms", None) else int(settings.mossos_timeout * 1000)
@@ -258,7 +287,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
             message.id,
             municipality.name if municipality else None,
         )
-        _mark_dead(session, message, "CERTIFICADO_INCOMPLETO")
+        _discard_message(session, message, "CERTIFICADO_INCOMPLETO")
         return
 
     send_started = time.monotonic()
@@ -272,7 +301,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
         )
     except FileNotFoundError as exc:
         logger.debug("[CERT][DEBUG] %s", exc)
-        _mark_dead(session, message, f"CERT_FILE_NOT_FOUND:{exc}")
+        _discard_message(session, message, f"CERT_FILE_NOT_FOUND:{exc}")
         return
 
     try:
@@ -282,7 +311,7 @@ def process_message(session: Session, message: MessageQueue) -> None:
         logger.debug(
             "[IMAGEN][DEBUG] Lectura %s sin imagen por error de disco: %s", plate, exc
         )
-        _mark_dead(
+        _discard_message(
             session,
             message,
             f"NO_IMAGE_FILE_RUNTIME: {exc}",
@@ -334,11 +363,11 @@ def process_message(session: Session, message: MessageQueue) -> None:
 
     message.last_error = error_msg
     if data_error:
-        message.status = MessageStatus.DEAD
-        logger.error("[SENDER] Lectura (%s) descartada por %s", plate, error_msg)
+        _discard_message(session, message, error_msg)
+        return
     elif message.attempts >= retry_max:
-        message.status = MessageStatus.DEAD
-        logger.error("[SENDER] Lectura (%s) descartada por %s", plate, error_msg)
+        _discard_message(session, message, error_msg)
+        return
     else:
         message.status = MessageStatus.FAILED
         message.next_retry_at = utc_now + timedelta(milliseconds=backoff_ms)
@@ -367,6 +396,9 @@ def run_sender_iteration() -> int:
             logger.debug(
                 "[SENDER][DEBUG] Mensajes recuperados de SENDING: %s", recovered
             )
+        cleaned = _delete_expired_dead(session, now)
+        if cleaned:
+            logger.debug("[SENDER][DEBUG] Mensajes DEAD eliminados: %s", cleaned)
         candidates = _load_candidates(session, batch_size)
         logger.debug("[SENDER][DEBUG] %s mensajes pendientes cargados para envío", len(candidates))
         for message in candidates:
