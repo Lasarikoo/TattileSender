@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     sender_default_retry_max: int = Field(3, env="SENDER_DEFAULT_RETRY_MAX")
     sender_default_backoff_ms: int = Field(1000, env="SENDER_DEFAULT_BACKOFF_MS")
     sender_stuck_timeout_seconds: int = Field(300, env="SENDER_STUCK_TIMEOUT_SECONDS")
+    sender_dead_retention_minutes: int = Field(10, env="SENDER_DEAD_RETENTION_MINUTES")
     MOSSOS_WSDL_URL: str = Field(
         "https://anpr.dgp.interior.extranet.gencat.cat/matr-ws/matricules.wsdl",
         env="MOSSOS_WSDL_URL",
