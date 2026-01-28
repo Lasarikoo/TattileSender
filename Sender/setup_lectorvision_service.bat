@@ -144,7 +144,7 @@ echo.
 echo [INFO] Estado del servicio:
 sc.exe query "%SVC_NAME%"
 echo.
-echo [INFO] Failure config:
+echo [INFO] Configuracion de acciones ante fallos (no indica error actual):
 sc.exe qfailure "%SVC_NAME%"
 echo.
 echo [INFO] QC config:
