@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import socket
+import threading
 from typing import Callable
 
 from datetime import datetime, timezone
@@ -12,6 +13,8 @@ from app.logger import logger
 from app.ingest.image_storage import save_reading_image_base64
 from app.ingest.parser import TattileParseError, parse_tattile_xml
 from app.models import AlprReading, Camera, MessageQueue, SessionLocal
+
+READ_TIMEOUT_SECONDS = 1.0
 
 
 def process_tattile_payload(xml_str: str, session: Session) -> None:
@@ -102,20 +105,45 @@ def process_tattile_payload(xml_str: str, session: Session) -> None:
         raise
 
 
-def _serve_connection(conn: socket.socket, addr: tuple, session_factory: Callable[[], Session]) -> None:
+def _read_connection_payload(conn: socket.socket, addr: tuple) -> str:
+    """Lee el payload XML completo o hasta timeout de inactividad.
+
+    Algunas cámaras mantienen la conexión TCP abierta tras enviar un mensaje.
+    Para evitar bloquear el servicio, se corta la lectura tras un periodo breve
+    sin datos una vez recibido al menos un chunk.
+    """
+
     data_chunks: list[bytes] = []
+    conn.settimeout(READ_TIMEOUT_SECONDS)
     with conn:
         while True:
-            chunk = conn.recv(4096)
+            try:
+                chunk = conn.recv(4096)
+            except socket.timeout:
+                if data_chunks:
+                    logger.debug(
+                        "[INGEST] Timeout leyendo %s tras recibir datos; se procesa payload parcial",
+                        addr,
+                    )
+                    break
+                logger.debug("[INGEST] Timeout leyendo %s sin datos; se cierra conexión", addr)
+                return ""
             if not chunk:
                 break
             data_chunks.append(chunk)
 
     if not data_chunks:
         logger.debug("Conexión %s cerrada sin datos", addr)
+        return ""
+
+    return b"".join(data_chunks).decode("utf-8", errors="replace")
+
+
+def _serve_connection(conn: socket.socket, addr: tuple, session_factory: Callable[[], Session]) -> None:
+    xml_str = _read_connection_payload(conn, addr)
+    if not xml_str:
         return
 
-    xml_str = b"".join(data_chunks).decode("utf-8", errors="replace")
     session = session_factory()
     try:
         process_tattile_payload(xml_str, session)
@@ -142,4 +170,9 @@ def run_ingest_service() -> None:
         while True:
             conn, addr = server_socket.accept()
             logger.debug("[INGEST] Conexión entrante desde %s", addr)
-            _serve_connection(conn, addr, SessionLocal)
+            worker = threading.Thread(
+                target=_serve_connection,
+                args=(conn, addr, SessionLocal),
+                daemon=True,
+            )
+            worker.start()
